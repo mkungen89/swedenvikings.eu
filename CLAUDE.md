@@ -195,3 +195,97 @@ notification          - Användarnotifikation
 - Server config: `C:\arma-reforger-server\server.json`
 - Loggar: `C:\arma-reforger-server\profile\logs\`
 
+---
+
+## Deployment till Ubuntu VPS
+
+### Filer för deployment
+
+```
+Dockerfile              # Multi-stage Docker build
+docker-compose.prod.yml # Produktion Docker Compose
+.env.example            # Mall för miljövariabler
+.dockerignore           # Filer att exkludera från Docker
+.github/workflows/deploy.yml  # GitHub Actions CI/CD
+nginx/swedenvikings.conf      # Nginx reverse proxy
+scripts/
+  setup-server.sh       # Initial VPS setup
+  deploy.sh             # Manuell deployment
+  backup.sh             # Databas backup
+  restore.sh            # Databas restore
+  logs.sh               # Visa container logs
+  update-arma.sh        # Uppdatera Arma server
+```
+
+### GitHub Secrets för CI/CD
+
+Konfigurera dessa i GitHub repository settings:
+- `VPS_HOST` - IP eller domän till VPS
+- `VPS_USER` - SSH-användare (t.ex. `deploy`)
+- `VPS_SSH_KEY` - Privat SSH-nyckel
+- `VPS_PORT` - SSH port (standard: 22)
+- `DISCORD_WEBHOOK_ADMIN` - Discord webhook för deploy-notifieringar
+
+### Deployment workflow
+
+1. **Förbered VPS:**
+   ```bash
+   # Kör som root på VPS
+   curl -O https://raw.githubusercontent.com/YOUR_USER/swedenvikings/main/scripts/setup-server.sh
+   sudo bash setup-server.sh
+   ```
+
+2. **Klona repo:**
+   ```bash
+   su - deploy
+   cd /opt/swedenvikings
+   git clone https://github.com/YOUR_USER/swedenvikings.eu.git .
+   ```
+
+3. **Konfigurera miljövariabler:**
+   ```bash
+   cp .env.example .env.production
+   nano .env.production  # Fyll i dina värden
+   ```
+
+4. **Setup Nginx & SSL:**
+   ```bash
+   sudo cp nginx/swedenvikings.conf /etc/nginx/sites-available/swedenvikings
+   # Redigera domännamn i filen
+   sudo ln -s /etc/nginx/sites-available/swedenvikings /etc/nginx/sites-enabled/
+   sudo rm /etc/nginx/sites-enabled/default
+   sudo nginx -t && sudo systemctl reload nginx
+   sudo certbot --nginx -d yourdomain.com
+   ```
+
+5. **Starta tjänsterna:**
+   ```bash
+   docker compose -f docker-compose.prod.yml up -d
+   docker compose -f docker-compose.prod.yml exec app npx prisma migrate deploy
+   ```
+
+### Linux server paths
+
+```
+/opt/swedenvikings/           # CMS projekt
+/opt/arma-reforger-server/    # Arma server
+/opt/steamcmd/                # SteamCMD
+```
+
+### Brandväggsregler (UFW)
+
+```bash
+ufw allow 22/tcp      # SSH
+ufw allow 80/tcp      # HTTP
+ufw allow 443/tcp     # HTTPS
+ufw allow 2001/udp    # Arma Reforger game
+ufw allow 17777/udp   # Arma Reforger query
+```
+
+### VPS Rekommenderade specs
+
+- **CPU:** 4+ cores (Arma är CPU-intensiv)
+- **RAM:** 16GB+ (8GB Arma, 4GB CMS/DB)
+- **Disk:** 50GB+ SSD
+- **OS:** Ubuntu 24.04 LTS
+

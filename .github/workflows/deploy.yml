@@ -1,23 +1,55 @@
 # ===========================================
-# Sweden Vikings CMS - GitHub Actions Deploy
+# Sweden Vikings CMS - GitHub Actions CI/CD
 # ===========================================
-# Automatic deployment to VPS on push to main
+# Automatisk deployment till VPS vid push till main
 
 name: Deploy to VPS
 
 on:
   push:
     branches: [main]
-  workflow_dispatch: # Allow manual trigger
+  workflow_dispatch: # Möjliggör manuell körning
 
 env:
-  DEPLOY_PATH: /opt/swedenvikings
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  deploy:
-    name: Deploy to Production
+  # ===========================================
+  # Build & Test
+  # ===========================================
+  build:
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run type-check --if-present
+
+      - name: Lint
+        run: npm run lint --if-present
+
+      - name: Build
+        run: npm run build
+
+  # ===========================================
+  # Deploy to VPS
+  # ===========================================
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
@@ -28,51 +60,52 @@ jobs:
           port: ${{ secrets.VPS_PORT || 22 }}
           script: |
             set -e
-
+            
             echo "=== Deploying Sweden Vikings CMS ==="
-
+            
             # Navigate to project directory
-            cd ${{ env.DEPLOY_PATH }}
-
+            cd /opt/swedenvikings
+            
             # Pull latest changes
-            echo "Pulling latest changes..."
+            echo ">>> Pulling latest changes..."
             git fetch origin main
             git reset --hard origin/main
-
+            
             # Build and restart containers
-            echo "Building Docker images..."
+            echo ">>> Building Docker images..."
             docker compose -f docker-compose.prod.yml build --no-cache
-
-            echo "Restarting containers..."
+            
+            echo ">>> Starting containers..."
             docker compose -f docker-compose.prod.yml up -d
-
+            
             # Wait for app to be healthy
-            echo "Waiting for app to start..."
+            echo ">>> Waiting for app to be healthy..."
             sleep 10
-
+            
             # Run database migrations
-            echo "Running database migrations..."
+            echo ">>> Running database migrations..."
             docker compose -f docker-compose.prod.yml exec -T app npx prisma migrate deploy || true
-
-            # Clean up old images
-            echo "Cleaning up old images..."
+            
+            # Cleanup old images
+            echo ">>> Cleaning up old Docker images..."
             docker image prune -f
+            
+            echo "=== Deployment Complete ==="
 
-            echo "=== Deployment complete! ==="
-
-  # Optional: Notify on deployment status
-  notify:
-    name: Notify Status
+  # ===========================================
+  # Notify on Failure
+  # ===========================================
+  notify-failure:
     runs-on: ubuntu-latest
-    needs: deploy
-    if: always()
-
+    needs: [build, deploy]
+    if: failure()
     steps:
-      - name: Deployment Status
-        run: |
-          if [ "${{ needs.deploy.result }}" == "success" ]; then
-            echo "Deployment successful!"
-          else
-            echo "Deployment failed!"
-            exit 1
-          fi
+      - name: Notify Discord on failure
+        if: ${{ secrets.DISCORD_WEBHOOK_ADMIN }}
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK_ADMIN }}
+          status: failure
+          title: "Deployment Failed"
+          description: "Sweden Vikings CMS deployment failed. Check GitHub Actions for details."
+          color: 0xff0000
