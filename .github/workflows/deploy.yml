@@ -1,0 +1,78 @@
+# ===========================================
+# Sweden Vikings CMS - GitHub Actions Deploy
+# ===========================================
+# Automatic deployment to VPS on push to main
+
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # Allow manual trigger
+
+env:
+  DEPLOY_PATH: /opt/swedenvikings
+
+jobs:
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            set -e
+
+            echo "=== Deploying Sweden Vikings CMS ==="
+
+            # Navigate to project directory
+            cd ${{ env.DEPLOY_PATH }}
+
+            # Pull latest changes
+            echo "Pulling latest changes..."
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Build and restart containers
+            echo "Building Docker images..."
+            docker compose -f docker-compose.prod.yml build --no-cache
+
+            echo "Restarting containers..."
+            docker compose -f docker-compose.prod.yml up -d
+
+            # Wait for app to be healthy
+            echo "Waiting for app to start..."
+            sleep 10
+
+            # Run database migrations
+            echo "Running database migrations..."
+            docker compose -f docker-compose.prod.yml exec -T app npx prisma migrate deploy || true
+
+            # Clean up old images
+            echo "Cleaning up old images..."
+            docker image prune -f
+
+            echo "=== Deployment complete! ==="
+
+  # Optional: Notify on deployment status
+  notify:
+    name: Notify Status
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: always()
+
+    steps:
+      - name: Deployment Status
+        run: |
+          if [ "${{ needs.deploy.result }}" == "success" ]; then
+            echo "Deployment successful!"
+          else
+            echo "Deployment failed!"
+            exit 1
+          fi

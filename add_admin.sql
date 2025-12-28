@@ -1,0 +1,4 @@
+INSERT INTO "UserRole" ("userId", "roleId") 
+VALUES ('6377eb2b-fc0d-4ba8-b54f-3e3a4a155659', '76e272f1-8856-4a27-9121-c08337f25324') 
+ON CONFLICT DO NOTHING;
+

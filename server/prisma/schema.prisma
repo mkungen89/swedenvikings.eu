@@ -1,0 +1,535 @@
+// ============================================
+// Sweden Vikings CMS - Database Schema
+// ============================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// User Models
+// ============================================
+
+model User {
+  id            String    @id @default(uuid())
+  steamId       String    @unique
+  username      String
+  email         String?
+  avatar        String?
+  banner        String?
+  bio           String?
+  isPrivate     Boolean   @default(false)
+  theme         String    @default("dark")
+  language      String    @default("sv")
+  emailNotifications Boolean @default(true)
+  discordNotifications Boolean @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastSeenAt    DateTime?
+
+  // Relations
+  roles         UserRole[]
+  sessions      Session[]
+  socialLinks   SocialLink[]
+  bansReceived  Ban[]         @relation("BannedUser")
+  bansIssued    Ban[]         @relation("BannedBy")
+  activityLogs  ActivityLog[]
+  newsArticles  News[]        @relation("NewsAuthor")
+  eventsOrganized Event[]     @relation("EventOrganizer")
+  eventParticipations EventParticipant[]
+  galleryItems  GalleryItem[]
+  ticketsCreated Ticket[]     @relation("TicketCreator")
+  ticketsAssigned Ticket[]    @relation("TicketAssignee")
+  ticketMessages TicketMessage[]
+  applications  Application[] @relation("Applicant")
+  applicationsReviewed Application[] @relation("Reviewer")
+  clanMemberships ClanMember[]
+  notifications Notification[]
+
+  @@index([steamId])
+  @@index([username])
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  userAgent String?
+  ip        String?
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+}
+
+model SocialLink {
+  id       String @id @default(uuid())
+  userId   String
+  platform String
+  url      String
+
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Ban {
+  id         String    @id @default(uuid())
+  steamId    String
+  reason     String
+  bannedById String
+  expiresAt  DateTime?
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+
+  bannedUser User      @relation("BannedUser", fields: [steamId], references: [steamId])
+  bannedBy   User      @relation("BannedBy", fields: [bannedById], references: [id])
+
+  @@index([steamId])
+  @@index([isActive])
+}
+
+// ============================================
+// Role Models
+// ============================================
+
+model Role {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  color       String   @default("#6366f1")
+  icon        String?
+  priority    Int      @default(0)
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  permissions RolePermission[]
+  users       UserRole[]
+
+  @@index([priority])
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  name        String
+  description String?
+  category    String
+
+  roles       RolePermission[]
+
+  @@index([category])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model UserRole {
+  userId    String
+  roleId    String
+  assignedAt DateTime @default(now())
+  
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+}
+
+// ============================================
+// Content Models
+// ============================================
+
+model News {
+  id          String    @id @default(uuid())
+  title       String
+  slug        String    @unique
+  excerpt     String
+  content     String    @db.Text
+  image       String?
+  category    String    @default("announcement")
+  isPinned    Boolean   @default(false)
+  isPublished Boolean   @default(false)
+  authorId    String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  publishedAt DateTime?
+
+  author      User      @relation("NewsAuthor", fields: [authorId], references: [id])
+
+  @@index([slug])
+  @@index([isPublished])
+  @@index([category])
+}
+
+model Page {
+  id          String   @id @default(uuid())
+  title       String
+  slug        String   @unique
+  content     String   @db.Text
+  isPublished Boolean  @default(false)
+  showInNav   Boolean  @default(false)
+  navOrder    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([slug])
+  @@index([isPublished])
+}
+
+model Event {
+  id              String    @id @default(uuid())
+  title           String
+  slug            String    @unique
+  description     String
+  content         String    @db.Text
+  image           String?
+  location        String?
+  startDate       DateTime
+  endDate         DateTime?
+  maxParticipants Int?
+  isPublished     Boolean   @default(false)
+  organizerId     String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  organizer       User      @relation("EventOrganizer", fields: [organizerId], references: [id])
+  participants    EventParticipant[]
+
+  @@index([slug])
+  @@index([startDate])
+  @@index([isPublished])
+}
+
+model EventParticipant {
+  id       String   @id @default(uuid())
+  eventId  String
+  userId   String
+  status   String   @default("going")
+  joinedAt DateTime @default(now())
+
+  event    Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+}
+
+model GalleryItem {
+  id           String   @id @default(uuid())
+  title        String?
+  description  String?
+  type         String   @default("image")
+  url          String
+  thumbnailUrl String?
+  category     String?
+  uploadedById String
+  createdAt    DateTime @default(now())
+
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id])
+
+  @@index([category])
+  @@index([type])
+}
+
+model Rule {
+  id       String   @id @default(uuid())
+  title    String
+  content  String   @db.Text
+  category String   @default("general")
+  order    Int      @default(0)
+  isActive Boolean  @default(true)
+
+  @@index([category])
+  @@index([order])
+}
+
+model NavItem {
+  id                 String  @id @default(uuid())
+  label              String
+  url                String
+  icon               String?
+  order              Int     @default(0)
+  isExternal         Boolean @default(false)
+  isVisible          Boolean @default(true)
+  requiredPermission String?
+
+  @@index([order])
+}
+
+// ============================================
+// Server Models
+// ============================================
+
+model ServerConnection {
+  id            String   @id @default(uuid())
+  name          String
+  type          String   @default("local") // local or remote
+  host          String?
+  port          Int?     @default(22)
+  username      String?
+  privateKey    String?  @db.Text
+  password      String?
+  serverPath    String
+  steamCmdPath  String?
+  isDefault     Boolean  @default(false)
+  platform      String   @default("linux") // linux or windows
+  status        String   @default("disconnected")
+  lastConnected DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([isDefault])
+  @@index([type])
+}
+
+model ServerConfig {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String   @db.Text
+  description String?
+  updatedAt   DateTime @updatedAt
+
+  @@index([key])
+}
+
+model Mod {
+  id           String   @id @default(uuid())
+  workshopId   String   @unique  // Arma Reforger hex ID (e.g. "5965550F24A0C152")
+  name         String
+  description  String?
+  author       String?
+  imageUrl     String?
+  enabled      Boolean  @default(true)
+  loadOrder    Int      @default(0)
+  size         BigInt?
+  version      String?           // Mod version (e.g. "1.2.0")
+  gameVersion  String?           // Required game version (e.g. "1.2.1.202")
+  dependencies String[]          // Array of workshop IDs
+  rating       Float?            // Rating percentage (0-100)
+  subscribers  Int?              // Number of subscribers
+  lastSyncedAt DateTime?         // When metadata was last fetched
+  installedAt  DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([enabled])
+  @@index([loadOrder])
+}
+
+model ServerLog {
+  id        String   @id @default(uuid())
+  timestamp DateTime @default(now())
+  level     String
+  category  String
+  message   String
+  details   Json?
+
+  @@index([timestamp])
+  @@index([level])
+  @@index([category])
+}
+
+model ScheduledTask {
+  id       String    @id @default(uuid())
+  name     String
+  action   String
+  cron     String
+  enabled  Boolean   @default(true)
+  lastRun  DateTime?
+  nextRun  DateTime?
+
+  @@index([enabled])
+}
+
+// ============================================
+// Ticket Models
+// ============================================
+
+model Ticket {
+  id           String    @id @default(uuid())
+  title        String
+  description  String    @db.Text
+  category     String    @default("other")
+  priority     String    @default("medium")
+  status       String    @default("open")
+  createdById  String
+  assignedToId String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  closedAt     DateTime?
+
+  createdBy    User      @relation("TicketCreator", fields: [createdById], references: [id])
+  assignedTo   User?     @relation("TicketAssignee", fields: [assignedToId], references: [id])
+  messages     TicketMessage[]
+
+  @@index([status])
+  @@index([category])
+  @@index([priority])
+}
+
+model TicketMessage {
+  id          String   @id @default(uuid())
+  ticketId    String
+  content     String   @db.Text
+  isStaff     Boolean  @default(false)
+  authorId    String
+  attachments String[] @default([])
+  createdAt   DateTime @default(now())
+
+  ticket      Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author      User     @relation(fields: [authorId], references: [id])
+
+  @@index([ticketId])
+}
+
+// ============================================
+// Application Models
+// ============================================
+
+model Application {
+  id           String    @id @default(uuid())
+  type         String
+  applicantId  String
+  status       String    @default("pending")
+  answers      Json
+  reviewedById String?
+  reviewNote   String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  reviewedAt   DateTime?
+
+  applicant    User      @relation("Applicant", fields: [applicantId], references: [id])
+  reviewedBy   User?     @relation("Reviewer", fields: [reviewedById], references: [id])
+
+  @@index([type])
+  @@index([status])
+}
+
+model ApplicationQuestion {
+  id       String  @id @default(uuid())
+  type     String
+  question String
+  order    Int     @default(0)
+  required Boolean @default(true)
+  isActive Boolean @default(true)
+
+  @@index([type])
+  @@index([order])
+}
+
+// ============================================
+// Clan Models
+// ============================================
+
+model Clan {
+  id           String   @id @default(uuid())
+  name         String   @unique
+  tag          String   @unique
+  description  String?
+  logo         String?
+  banner       String?
+  color        String   @default("#6366f1")
+  isRecruiting Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  members      ClanMember[]
+
+  @@index([tag])
+}
+
+model ClanMember {
+  id       String   @id @default(uuid())
+  clanId   String
+  userId   String
+  role     String   @default("member")
+  joinedAt DateTime @default(now())
+
+  clan     Clan     @relation(fields: [clanId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([clanId, userId])
+  @@index([userId])
+}
+
+// ============================================
+// Notification Models
+// ============================================
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String
+  title     String
+  message   String
+  link      String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+}
+
+// ============================================
+// System Models
+// ============================================
+
+model SiteSettings {
+  id                 String  @id @default("main")
+  siteName           String  @default("Sweden Vikings")
+  siteDescription    String?
+  logo               String?
+  favicon            String?
+  maintenance        Boolean @default(false)
+  maintenanceMessage String?
+  primaryColor       String  @default("#6366f1")
+  accentColor        String  @default("#06b6d4")
+  discordInvite      String?
+  twitterUrl         String?
+  youtubeUrl         String?
+  metaTitle          String?
+  metaDescription    String?
+  ogImage            String?
+}
+
+model ActivityLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  category  String
+  details   Json?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user      User?    @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([category])
+  @@index([createdAt])
+}
+
+model Backup {
+  id        String   @id @default(uuid())
+  filename  String
+  size      BigInt
+  type      String
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
