@@ -77,6 +77,72 @@ interface SiteSettings {
   metaTitle?: string;
   metaDescription?: string;
   ogImage?: string;
+
+  // SEO Settings
+  seoKeywords?: string;
+  seoCanonicalUrl?: string;
+  seoRobotsIndex?: boolean;
+  seoRobotsFollow?: boolean;
+  seoGoogleSiteVerification?: string;
+  seoBingSiteVerification?: string;
+  seoGoogleAnalyticsId?: string;
+  seoFacebookAppId?: string;
+  seoTwitterCard?: string;
+  seoTwitterSite?: string;
+  seoTwitterCreator?: string;
+  seoOgType?: string;
+  seoOgLocale?: string;
+
+  // Security Settings
+  requireEmailVerification?: boolean;
+  enableTwoFactor?: boolean;
+  sessionTimeout?: number;
+  maxLoginAttempts?: number;
+  loginLockoutDuration?: number;
+  passwordMinLength?: number;
+  passwordRequireUppercase?: boolean;
+  passwordRequireLowercase?: boolean;
+  passwordRequireNumbers?: boolean;
+  passwordRequireSpecialChars?: boolean;
+  enableRateLimiting?: boolean;
+  rateLimitRequests?: number;
+  rateLimitWindow?: number;
+  enableCORS?: boolean;
+  allowedOrigins?: string;
+  enableCSRF?: boolean;
+  ipWhitelist?: string;
+  ipBlacklist?: string;
+
+  // Notification Settings
+  enableEmailNotifications?: boolean;
+  enableDiscordNotifications?: boolean;
+  enablePushNotifications?: boolean;
+  smtpHost?: string;
+  smtpPort?: number;
+  smtpSecure?: boolean;
+  smtpUser?: string;
+  smtpPassword?: string;
+  emailFromAddress?: string;
+  emailFromName?: string;
+  discordWebhookUrl?: string;
+  discordBotToken?: string;
+  notifyOnNewUser?: boolean;
+  notifyOnNewTicket?: boolean;
+  notifyOnNewNews?: boolean;
+  notifyOnNewEvent?: boolean;
+  notifyOnServerDown?: boolean;
+  adminEmailAddresses?: string;
+
+  // Database Settings
+  enableAutoBackup?: boolean;
+  backupFrequency?: string;
+  backupRetentionDays?: number;
+  backupLocation?: string;
+  enableDatabaseOptimization?: boolean;
+  optimizationSchedule?: string;
+  maxDatabaseSize?: number;
+  enableQueryLogging?: boolean;
+  slowQueryThreshold?: number;
 }
 
 // Dashboard
@@ -237,10 +303,107 @@ export function useAdminLogs(page = 1, limit = 50, category?: string, userId?: s
       });
       if (category) params.append('category', category);
       if (userId) params.append('userId', userId);
-      
+
       const response = await api.get(`/admin/logs?${params}`);
       return response.data;
     },
+  });
+}
+
+// ============================================
+// Settings - Manual Actions
+// ============================================
+
+// Test Email
+export function useTestEmail() {
+  return useMutation({
+    mutationFn: async (email?: string) => {
+      const response = await api.post('/admin/settings/test-email', { email });
+      return response.data;
+    },
+  });
+}
+
+// Test Discord
+export function useTestDiscord() {
+  return useMutation({
+    mutationFn: async () => {
+      const response = await api.post('/admin/settings/test-discord');
+      return response.data;
+    },
+  });
+}
+
+// Create Backup
+export function useCreateBackup() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      const response = await api.post('/admin/settings/backup');
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'backups'] });
+    },
+  });
+}
+
+// List Backups
+export function useBackups() {
+  return useQuery({
+    queryKey: ['admin', 'backups'],
+    queryFn: async () => {
+      const response = await api.get('/admin/settings/backups');
+      return response.data.data;
+    },
+  });
+}
+
+// Restore Backup
+export function useRestoreBackup() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (filename: string) => {
+      const response = await api.post('/admin/settings/restore', { filename });
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'backups'] });
+    },
+  });
+}
+
+// Optimize Database
+export function useOptimizeDatabase() {
+  return useMutation({
+    mutationFn: async () => {
+      const response = await api.post('/admin/settings/optimize');
+      return response.data;
+    },
+  });
+}
+
+// Clean Old Data
+export function useCleanOldData() {
+  return useMutation({
+    mutationFn: async () => {
+      const response = await api.post('/admin/settings/clean');
+      return response.data;
+    },
+  });
+}
+
+// Get Database Stats
+export function useDatabaseStats() {
+  return useQuery({
+    queryKey: ['admin', 'database-stats'],
+    queryFn: async () => {
+      const response = await api.get('/admin/settings/database-stats');
+      return response.data.data;
+    },
+    refetchInterval: 60000, // Refresh every minute
   });
 }
 

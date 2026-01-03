@@ -19,6 +19,7 @@ export interface ServerStatus {
   memoryTotal?: number;
   ping: number;
   lastUpdated: string;
+  rconEnabled?: boolean;
 }
 
 export interface ServerConnection {

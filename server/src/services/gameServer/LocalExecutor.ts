@@ -66,8 +66,9 @@ export class LocalExecutor implements ExecutorInterface {
     onError?: (error: string) => void
   ): Promise<CommandResult> {
     return new Promise((resolve) => {
-      const [cmd, ...args] = command.split(' ');
-      const child = spawn(cmd, args, {
+      // Use shell: true and pass the entire command as a string
+      // This properly handles paths with spaces and quoted arguments
+      const child = spawn(command, [], {
         shell: true,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
@@ -84,6 +85,8 @@ export class LocalExecutor implements ExecutorInterface {
       child.stderr?.on('data', (data) => {
         const str = data.toString();
         errorOutput += str;
+        // Also send stderr to onData so we can see all output
+        onData(str);
         if (onError) onError(str);
       });
 
@@ -97,6 +100,7 @@ export class LocalExecutor implements ExecutorInterface {
       });
 
       child.on('error', (err) => {
+        logger.error(`execStream error: ${err.message}`);
         resolve({
           success: false,
           output,

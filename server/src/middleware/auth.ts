@@ -97,7 +97,7 @@ export function isOwnerOrAdmin(getUserId: (req: Request) => string | undefined) 
     }
 
     const resourceUserId = getUserId(req);
-    
+
     // Allow if user is the owner
     if (resourceUserId === req.user.id) {
       return next();
@@ -138,4 +138,8 @@ export function isOwnerOrAdmin(getUserId: (req: Request) => string | undefined) 
     next();
   };
 }
+
+// Aliases for consistency with new routes
+export const requireAuth = isAuthenticated;
+export const requirePermission = hasPermission;
 

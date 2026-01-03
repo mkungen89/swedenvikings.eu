@@ -3,6 +3,8 @@
 // ============================================
 
 import { PrismaClient } from '@prisma/client';
+import { seedMedals } from './seeds/medals';
+import { seedAchievements } from './seeds/achievements';
 
 const prisma = new PrismaClient();
 
@@ -255,6 +257,10 @@ async function main() {
   }
   console.log('✅ Application questions created');
 
+  // Seed medals and achievements
+  await seedMedals();
+  await seedAchievements();
+
   console.log('');
   console.log('🎉 Database seed completed successfully!');
   console.log('');
@@ -262,6 +268,10 @@ async function main() {
   console.log('  - Admin (all permissions)');
   console.log('  - Moderator (moderation permissions)');
   console.log('  - Member (default role)');
+  console.log('');
+  console.log('Game progression:');
+  console.log('  - 43 Medals created');
+  console.log('  - 48 Achievements created');
 }
 
 main()

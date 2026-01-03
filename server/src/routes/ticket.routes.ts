@@ -8,6 +8,7 @@ import { isAuthenticated, hasPermission } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { sendSuccess, sendPaginated, errors } from '../utils/apiResponse';
 import { prisma } from '../utils/prisma';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -123,6 +124,47 @@ router.post('/',
             select: { id: true, username: true, avatar: true },
           },
         },
+      });
+
+      // Send notifications asynchronously
+      const notifyNewTicket = async () => {
+        try {
+          const settings = await prisma.siteSettings.findUnique({
+            where: { id: 'main' },
+          });
+
+          if (!settings || !settings.notifyOnNewTicket) return;
+
+          // Email notification
+          if (settings.enableEmailNotifications) {
+            const { emailService } = await import('../services/email.service');
+            await emailService.sendNewTicketNotification({
+              id: ticket.id,
+              title: ticket.title,
+              priority: ticket.priority,
+              user: { username: ticket.createdBy.username },
+            });
+          }
+
+          // Discord notification
+          if (settings.enableDiscordNotifications) {
+            const { discordService } = await import('../services/discord.service');
+            await discordService.sendNewTicketNotification({
+              id: ticket.id,
+              title: ticket.title,
+              priority: ticket.priority,
+              category: ticket.category,
+              user: { username: ticket.createdBy.username },
+            });
+          }
+        } catch (error) {
+          logger.error('Failed to send ticket notifications:', error);
+        }
+      };
+
+      // Run notifications in background
+      notifyNewTicket().catch((error) => {
+        logger.error('Ticket notification error:', error);
       });
 
       sendSuccess(res, ticket, undefined, 201);

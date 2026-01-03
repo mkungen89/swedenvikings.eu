@@ -18,7 +18,23 @@
       "Bash(node:*)",
       "Bash(cat:*)",
       "Bash(powershell -Command:*)",
-      "Bash(git commit -m \"$\\(cat <<''EOF''\nInitial commit: Sweden Vikings CMS\n\nFull-stack CMS for Arma Reforger gaming community with:\n- React 18 + Vite + TypeScript frontend\n- Express + Prisma + PostgreSQL backend\n- Steam authentication\n- Server management for Arma Reforger\n- Docker production setup\n- GitHub Actions CI/CD\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nInitial commit: Sweden Vikings CMS\n\nFull-stack CMS for Arma Reforger gaming community with:\n- React 18 + Vite + TypeScript frontend\n- Express + Prisma + PostgreSQL backend\n- Steam authentication\n- Server management for Arma Reforger\n- Docker production setup\n- GitHub Actions CI/CD\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(npm run dev:*)",
+      "Bash(timeout 10 powershell:*)",
+      "Bash(timeout:*)",
+      "Bash(docker-compose up:*)",
+      "Bash(npx tsx:*)",
+      "Bash(del:*)",
+      "Bash(find:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm run type-check:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)",
+      "Bash(dir:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(ren:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }

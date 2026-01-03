@@ -103,14 +103,82 @@ export default function Footer() {
           </div>
         </div>
 
+        {/* Partners & Sponsors */}
+        <div className="mt-12 pt-8 border-t border-white/5">
+          <h3 className="font-display font-semibold text-center mb-6 text-gray-300">
+            Partners & Sponsorer
+          </h3>
+          <div className="flex flex-wrap items-center justify-center gap-8 md:gap-12">
+            {/* Bohemia Interactive */}
+            <a
+              href="https://www.bohemia.net"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group opacity-70 hover:opacity-100 transition-all duration-300"
+              title="Bohemia Interactive"
+            >
+              <div className="px-6 py-3 rounded-lg border border-transparent group-hover:border-primary-500/40 transition-all duration-300">
+                <img
+                  src="https://www.liblogo.com/img-logo/bo3787be2d-bohemia-interactive-logo-bohemia-interactive-and-nitrado-a-strategic-partnership-provides.png"
+                  alt="Bohemia Interactive"
+                  className="h-8 md:h-10 object-contain transition-all duration-300"
+                  style={{ filter: 'brightness(1.1)' }}
+                />
+              </div>
+            </a>
+
+            {/* Arma Reforger */}
+            <a
+              href="https://reforger.armaplatform.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group opacity-70 hover:opacity-100 transition-all duration-300"
+              title="Arma Reforger"
+            >
+              <div className="px-6 py-3 rounded-lg border border-transparent group-hover:border-red-500/40 transition-all duration-300">
+                <img
+                  src="https://upload.wikimedia.org/wikipedia/commons/thumb/d/db/Arma_Reforger_Logo_%28Black_Transparent%29.svg/960px-Arma_Reforger_Logo_%28Black_Transparent%29.svg.png"
+                  alt="Arma Reforger"
+                  className="h-8 md:h-10 object-contain transition-all duration-300"
+                  style={{ filter: 'brightness(1.2) invert(1)' }}
+                />
+              </div>
+            </a>
+
+            {/* Hostup.se */}
+            <a
+              href="https://hostup.se"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group opacity-70 hover:opacity-100 transition-all duration-300"
+              title="Hostup.se - VPS Hosting"
+            >
+              <div className="px-6 py-3 rounded-lg border border-transparent group-hover:border-blue-500/40 transition-all duration-300">
+                <img
+                  src="https://hostup.se/images/logo.svg"
+                  alt="Hostup.se"
+                  className="h-6 md:h-7 object-contain transition-all duration-300"
+                  style={{ filter: 'brightness(1.2) contrast(1.1)' }}
+                />
+              </div>
+            </a>
+          </div>
+        </div>
+
         {/* Bottom */}
-        <div className="mt-12 pt-8 border-t border-white/5 flex flex-col sm:flex-row justify-between items-center gap-4">
+        <div className="mt-8 pt-8 border-t border-white/5 flex flex-col sm:flex-row justify-between items-center gap-4">
           <p className="text-gray-400 text-sm">
             © {new Date().getFullYear()} Sweden Vikings. Alla rättigheter förbehållna.
           </p>
-          <p className="text-gray-500 text-xs">
-            Arma Reforger är ett varumärke tillhörande Bohemia Interactive.
-          </p>
+          <div className="flex flex-wrap items-center justify-center gap-4 text-xs text-gray-500">
+            <Link to="/privacy" className="hover:text-gray-400 transition-colors">
+              Integritetspolicy
+            </Link>
+            <span>•</span>
+            <Link to="/terms" className="hover:text-gray-400 transition-colors">
+              Användarvillkor
+            </Link>
+          </div>
         </div>
       </div>
     </footer>

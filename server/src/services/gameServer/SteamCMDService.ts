@@ -42,22 +42,34 @@ export class SteamCMDService extends EventEmitter {
     logger.info('Installing SteamCMD...');
     this.emitProgress({
       status: 'downloading',
-      progress: 0,
-      message: 'Downloading SteamCMD...',
+      progress: 5,
+      message: 'Laddar ner SteamCMD...',
     });
 
     try {
       // Create directory
       await this.executor.mkdir(this.steamCmdPath);
+      
+      this.emitProgress({
+        status: 'downloading',
+        progress: 10,
+        message: 'Skapar mappar...',
+      });
 
       if (this.platform === 'linux') {
         // Download and extract SteamCMD for Linux
+        this.emitProgress({
+          status: 'downloading',
+          progress: 15,
+          message: 'Laddar ner SteamCMD för Linux...',
+        });
+        
         const result = await this.executor.exec(
           `cd ${this.steamCmdPath} && curl -sqL "${STEAMCMD_DOWNLOAD_URL_LINUX}" | tar zxvf -`
         );
 
         if (!result.success) {
-          throw new Error(`Failed to download SteamCMD: ${result.error}`);
+          throw new Error(`Kunde inte ladda ner SteamCMD: ${result.error}`);
         }
 
         // Make executable
@@ -66,8 +78,8 @@ export class SteamCMDService extends EventEmitter {
         // Run once to update
         this.emitProgress({
           status: 'extracting',
-          progress: 50,
-          message: 'Initializing SteamCMD...',
+          progress: 30,
+          message: 'Initialiserar SteamCMD (första körningen)...',
         });
 
         await this.executor.exec(
@@ -76,6 +88,12 @@ export class SteamCMDService extends EventEmitter {
         );
       } else {
         // Windows - use PowerShell for reliable download and extraction
+        this.emitProgress({
+          status: 'downloading',
+          progress: 15,
+          message: 'Laddar ner SteamCMD för Windows...',
+        });
+        
         const psCommand = `
           $ProgressPreference = 'SilentlyContinue';
           New-Item -ItemType Directory -Force -Path '${this.steamCmdPath.replace(/\\/g, '\\\\')}' | Out-Null;
@@ -89,14 +107,14 @@ export class SteamCMDService extends EventEmitter {
         );
 
         if (!result.success) {
-          throw new Error(`Failed to download SteamCMD: ${result.error}`);
+          throw new Error(`Kunde inte ladda ner SteamCMD: ${result.error}`);
         }
 
         // Run once to update
         this.emitProgress({
           status: 'extracting',
-          progress: 50,
-          message: 'Initializing SteamCMD...',
+          progress: 30,
+          message: 'Initialiserar SteamCMD (första körningen - kan ta några minuter)...',
         });
 
         await this.executor.exec(
@@ -106,9 +124,9 @@ export class SteamCMDService extends EventEmitter {
       }
 
       this.emitProgress({
-        status: 'complete',
-        progress: 100,
-        message: 'SteamCMD installed successfully',
+        status: 'configuring',
+        progress: 40,
+        message: 'SteamCMD installerat! Fortsätter med serverinstallation...',
       });
 
       logger.info('SteamCMD installed successfully');
@@ -118,7 +136,7 @@ export class SteamCMDService extends EventEmitter {
       this.emitProgress({
         status: 'error',
         progress: 0,
-        message: `Failed to install SteamCMD: ${error.message}`,
+        message: `Kunde inte installera SteamCMD: ${error.message}`,
       });
       return false;
     }
@@ -140,23 +158,46 @@ export class SteamCMDService extends EventEmitter {
     logger.info('Installing/Updating Arma Reforger server...');
     
     // Ensure SteamCMD is installed
+    this.emitProgress({
+      status: 'downloading',
+      progress: 2,
+      message: 'Kontrollerar SteamCMD installation...',
+    });
+    
     if (!(await this.isSteamCMDInstalled())) {
       logger.info('SteamCMD not found, installing...');
+      this.emitProgress({
+        status: 'downloading',
+        progress: 5,
+        message: 'SteamCMD saknas, installerar...',
+      });
       const steamCmdInstalled = await this.installSteamCMD();
       if (!steamCmdInstalled) {
         return false;
       }
+    } else {
+      this.emitProgress({
+        status: 'downloading',
+        progress: 40,
+        message: 'SteamCMD finns redan installerat',
+      });
     }
 
     this.emitProgress({
       status: 'downloading',
-      progress: 0,
-      message: 'Starting Arma Reforger server download...',
+      progress: 42,
+      message: 'Förbereder Arma Reforger nedladdning...',
     });
 
     try {
       // Create server directory
       await this.executor.mkdir(this.serverPath);
+      
+      this.emitProgress({
+        status: 'downloading',
+        progress: 45,
+        message: 'Skapar servermapp...',
+      });
 
       // Build SteamCMD command
       const steamCmd = this.platform === 'windows'
@@ -169,60 +210,148 @@ export class SteamCMDService extends EventEmitter {
       }
 
       const validateFlag = validate ? 'validate' : '';
-      const command = `${steamCmd} ${loginCmd} +force_install_dir "${this.serverPath}" +app_update ${ARMA_REFORGER_APP_ID} ${validateFlag} +quit`;
+      
+      // For Windows, we need to handle the command differently
+      let command: string;
+      if (this.platform === 'windows') {
+        // Use PowerShell to run SteamCMD with proper handling
+        command = `"${steamCmd}" ${loginCmd} +force_install_dir "${this.serverPath}" +app_update ${ARMA_REFORGER_APP_ID} ${validateFlag} +quit`;
+      } else {
+        command = `${steamCmd} ${loginCmd} +force_install_dir "${this.serverPath}" +app_update ${ARMA_REFORGER_APP_ID} ${validateFlag} +quit`;
+      }
+      
+      logger.info(`Running SteamCMD command: ${command}`);
+
+      this.emitProgress({
+        status: 'downloading',
+        progress: 48,
+        message: 'Startar nedladdning av Arma Reforger Server (detta kan ta lång tid)...',
+      });
 
       // Run with streaming output to track progress
       let lastProgress = 0;
+      let downloadStarted = false;
+      let lastOutput = '';
+      
       const result = await this.executor.execStream(
         command,
         (data) => {
+          lastOutput += data;
+          logger.debug(`SteamCMD output: ${data}`);
+          
           // Parse progress from SteamCMD output
           const progressMatch = data.match(/Update state \(0x\d+\) (\w+), progress: ([\d.]+)/);
           if (progressMatch) {
-            const progress = parseFloat(progressMatch[2]);
-            if (progress > lastProgress) {
-              lastProgress = progress;
+            downloadStarted = true;
+            const steamProgress = parseFloat(progressMatch[2]);
+            // Map steam progress (0-100) to our range (50-95)
+            const mappedProgress = 50 + (steamProgress * 0.45);
+            if (steamProgress > lastProgress) {
+              lastProgress = steamProgress;
               this.emitProgress({
                 status: 'downloading',
-                progress: Math.min(progress, 99),
-                message: `Downloading: ${progress.toFixed(1)}%`,
+                progress: Math.min(mappedProgress, 95),
+                message: `Laddar ner serverfiler: ${steamProgress.toFixed(1)}%`,
               });
             }
           }
-
-          // Check for validation
-          if (data.includes('Validating')) {
+          
+          // Check for downloading state
+          if ((data.includes('downloading') || data.includes('Downloading')) && !downloadStarted) {
+            downloadStarted = true;
             this.emitProgress({
-              status: 'configuring',
-              progress: 99,
-              message: 'Validating installation...',
+              status: 'downloading',
+              progress: 50,
+              message: 'Nedladdning påbörjad...',
             });
           }
+          
+          // Check for preallocating (common on first install)
+          if (data.includes('preallocating') || data.includes('Preallocating')) {
+            this.emitProgress({
+              status: 'downloading',
+              progress: 49,
+              message: 'Förbereder diskutrymme...',
+            });
+          }
+
+          // Check for validation
+          if (data.includes('Validating') || data.includes('validating')) {
+            this.emitProgress({
+              status: 'configuring',
+              progress: 96,
+              message: 'Validerar installation...',
+            });
+          }
+          
+          // Check for completion
+          if (data.includes('Success!') || data.includes('fully installed')) {
+            this.emitProgress({
+              status: 'configuring',
+              progress: 98,
+              message: 'Nedladdning klar! Verifierar filer...',
+            });
+          }
+          
+          // Check for errors
+          if (data.includes('ERROR!') || data.includes('FAILED')) {
+            logger.error(`SteamCMD error: ${data}`);
+          }
+        },
+        (errorData) => {
+          logger.error(`SteamCMD stderr: ${errorData}`);
         }
       );
+      
+      logger.info(`SteamCMD finished with success: ${result.success}, exit code: ${result.exitCode}`);
 
       if (!result.success) {
-        throw new Error(`SteamCMD failed: ${result.error}`);
+        // Try to extract a meaningful error message
+        let errorMsg = result.error || '';
+        if (result.output) {
+          // Check for common error patterns
+          if (result.output.includes('Disk write failure')) {
+            errorMsg = 'Kunde inte skriva till disk. Kontrollera diskutrymme och behörigheter.';
+          } else if (result.output.includes('Invalid platform')) {
+            errorMsg = 'Fel plattform vald. Arma Reforger Server stöder endast Windows.';
+          } else if (result.output.includes('rate limit')) {
+            errorMsg = 'Steam rate limit nådd. Vänta några minuter och försök igen.';
+          } else if (result.output.includes('Login Failure')) {
+            errorMsg = 'Inloggningsfel. Anonymous login misslyckades.';
+          } else {
+            errorMsg = result.error || 'Okänt fel under nedladdning';
+          }
+        }
+        logger.error(`SteamCMD failed. Error: ${errorMsg}, Output: ${result.output?.substring(0, 500)}`);
+        throw new Error(`SteamCMD misslyckades: ${errorMsg}`);
       }
 
       // Verify installation
+      this.emitProgress({
+        status: 'configuring',
+        progress: 99,
+        message: 'Kontrollerar installation...',
+      });
+      
       if (await this.isServerInstalled()) {
         this.emitProgress({
           status: 'complete',
           progress: 100,
-          message: 'Arma Reforger server installed successfully',
+          message: 'Arma Reforger Server installerad! Servern är redo att startas.',
         });
         logger.info('Arma Reforger server installed successfully');
         return true;
       } else {
-        throw new Error('Server files not found after installation');
+        // Check if SteamCMD output contains clues
+        logger.error(`Server not found after install. SteamCMD exit code: ${result.exitCode}`);
+        throw new Error('Serverfiler hittades inte efter installation. Kontrollera att sökvägen är korrekt och att du har tillräckligt diskutrymme.');
       }
     } catch (error: any) {
       logger.error('Failed to install server:', error.message);
       this.emitProgress({
         status: 'error',
         progress: 0,
-        message: `Failed to install server: ${error.message}`,
+        message: `Installation misslyckades: ${error.message}`,
       });
       return false;
     }

@@ -8,10 +8,9 @@
 set -e
 
 PROJECT_DIR="/opt/swedenvikings"
-COMPOSE_FILE="docker-compose.prod.yml"
 
 echo "===========================================
-Sweden Vikings CMS - Manual Deployment
+Sweden Vikings CMS - Native Deployment
 ==========================================="
 
 cd "$PROJECT_DIR"
@@ -19,47 +18,57 @@ cd "$PROJECT_DIR"
 # Check if .env.production exists
 if [ ! -f ".env.production" ]; then
     echo "ERROR: .env.production not found!"
-    echo "Please create it from .env.example:"
-    echo "  cp .env.example .env.production"
+    echo "Please create it from .env.example.production:"
+    echo "  cp .env.example.production .env.production"
     echo "  nano .env.production"
     exit 1
 fi
 
 # Pull latest changes
-echo ">>> Pulling latest changes..."
+echo ">>> Pulling latest changes from git..."
 git pull origin main
 
-# Build containers
-echo ">>> Building Docker images..."
-docker compose -f "$COMPOSE_FILE" build
+# Install dependencies
+echo ">>> Installing dependencies..."
+npm install --production=false
 
-# Stop old containers
-echo ">>> Stopping old containers..."
-docker compose -f "$COMPOSE_FILE" down
+# Build the application
+echo ">>> Building frontend and backend..."
+npm run build
 
-# Start new containers
-echo ">>> Starting containers..."
-docker compose -f "$COMPOSE_FILE" up -d
-
-# Wait for services to be ready
-echo ">>> Waiting for services to start..."
-sleep 15
+# Generate Prisma client
+echo ">>> Generating Prisma client..."
+cd server && npx prisma generate && cd ..
 
 # Run database migrations
 echo ">>> Running database migrations..."
-docker compose -f "$COMPOSE_FILE" exec -T app npx prisma migrate deploy
+cd server && npx prisma migrate deploy && cd ..
 
-# Cleanup
-echo ">>> Cleaning up old Docker images..."
-docker image prune -f
+# Reload PM2 processes (zero-downtime)
+echo ">>> Reloading PM2 processes..."
+pm2 reload ecosystem.config.js --env production
 
-# Check status
-echo ">>> Container status:"
-docker compose -f "$COMPOSE_FILE" ps
+# Save PM2 configuration
+pm2 save
+
+# Show status
+echo ">>> PM2 Status:"
+pm2 status
 
 echo "
 ===========================================
 Deployment Complete!
 ===========================================
+
+Service status:
+$(pm2 status)
+
+Logs:
+- pm2 logs swedenvikings
+- pm2 logs swedenvikings --lines 100
+
+Monitoring:
+- pm2 monit
+
 "
 

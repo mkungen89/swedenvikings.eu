@@ -46,6 +46,7 @@ api.interceptors.response.use(
 );
 
 export default api;
+export { api }; // Named export for backwards compatibility
 
 // Type-safe API helpers
 export interface ApiResponse<T> {

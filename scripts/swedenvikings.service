@@ -1,0 +1,47 @@
+# ===========================================
+# Sweden Vikings CMS - Systemd Service
+# ===========================================
+# Backup service file if PM2 is not used
+# Copy to: /etc/systemd/system/swedenvikings.service
+# Enable: sudo systemctl enable swedenvikings
+# Start: sudo systemctl start swedenvikings
+
+[Unit]
+Description=Sweden Vikings CMS - Arma Reforger Community Platform
+Documentation=https://github.com/YOUR_USERNAME/swedenvikings.eu
+After=network.target postgresql.service redis-server.service
+
+[Service]
+Type=simple
+User=deploy
+Group=deploy
+WorkingDirectory=/opt/swedenvikings
+
+# Environment
+Environment=NODE_ENV=production
+EnvironmentFile=/opt/swedenvikings/.env.production
+
+# Start command
+ExecStart=/usr/bin/node /opt/swedenvikings/server/dist/index.js
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitBurst=5
+StartLimitInterval=60
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=swedenvikings
+
+[Install]
+WantedBy=multi-user.target

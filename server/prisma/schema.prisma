@@ -17,7 +17,8 @@ datasource db {
 
 model User {
   id            String    @id @default(uuid())
-  steamId       String    @unique
+  steamId       String?   @unique // Made optional for Discord/console users
+  discordId     String?   @unique // Discord OAuth ID
   username      String
   email         String?
   avatar        String?
@@ -50,8 +51,24 @@ model User {
   applicationsReviewed Application[] @relation("Reviewer")
   clanMemberships ClanMember[]
   notifications Notification[]
+  playerStats PlayerStats?
+  medals UserMedal[]
+  achievements UserAchievement[]
+
+  // Community relations
+  forumThreads  ForumThread[] @relation("ThreadAuthor")
+  forumPosts    ForumPost[]   @relation("PostAuthor")
+  comments      Comment[]
+  conversationParticipants ConversationParticipant[]
+  messagesSent  DirectMessage[] @relation("MessageSender")
+  friendships   Friendship[]  @relation("UserFriends")
+  friendOf      Friendship[]  @relation("FriendOf")
+
+  // Cross-platform gaming accounts
+  platformAccounts PlatformAccount[]
 
   @@index([steamId])
+  @@index([discordId])
   @@index([username])
 }
 
@@ -78,6 +95,52 @@ model SocialLink {
 
   user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
+}
+
+// ============================================
+// Cross-Platform Gaming Account Models
+// ============================================
+
+model PlatformAccount {
+  id         String   @id @default(uuid())
+  userId     String
+  platform   String   // "steam", "xbox", "psn"
+  platformId String   // Steam ID 64, XUID, or PSN Account ID
+
+  // Display information from the platform
+  platformUsername String?
+  platformAvatar   String?
+
+  isPrimary  Boolean  @default(false)
+  linkedAt   DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([platform, platformId])
+  @@unique([userId, platform]) // User can only have one account per platform
+  @@index([userId])
+  @@index([platformId])
+}
+
+// For manual account linking via in-game code
+model LinkingCode {
+  id         String   @id @default(uuid())
+  code       String   @unique  // "VIKING-A7X9"
+  platform   String   // "xbox", "psn", "steam"
+  platformId String   // XUID, PSN Account ID, or Steam ID
+  platformUsername String? // Username from the game
+
+  userId     String?  // Null until linked
+  expiresAt  DateTime // Code valid for 24 hours
+  usedAt     DateTime?
+
+  createdAt  DateTime @default(now())
+
+  @@index([code])
+  @@index([platformId])
+  @@index([expiresAt])
   @@index([userId])
 }
 
@@ -169,6 +232,7 @@ model News {
   publishedAt DateTime?
 
   author      User      @relation("NewsAuthor", fields: [authorId], references: [id])
+  comments    Comment[]
 
   @@index([slug])
   @@index([isPublished])
@@ -208,6 +272,7 @@ model Event {
 
   organizer       User      @relation("EventOrganizer", fields: [organizerId], references: [id])
   participants    EventParticipant[]
+  comments        Comment[]
 
   @@index([slug])
   @@index([startDate])
@@ -476,12 +541,177 @@ model Notification {
   message   String
   link      String?
   isRead    Boolean  @default(false)
+  metadata  Json?
   createdAt DateTime @default(now())
 
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([isRead])
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
+
+// ============================================
+// Forum Models
+// ============================================
+
+model ForumCategory {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  description String?
+  icon        String?
+  sortOrder   Int      @default(0)
+  isLocked    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  threads     ForumThread[]
+
+  @@index([sortOrder])
+}
+
+model ForumThread {
+  id          String   @id @default(uuid())
+  title       String
+  slug        String
+  content     String   @db.Text
+  isPinned    Boolean  @default(false)
+  isLocked    Boolean  @default(false)
+  viewCount   Int      @default(0)
+  categoryId  String
+  authorId    String
+  lastPostAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  category    ForumCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  author      User          @relation("ThreadAuthor", fields: [authorId], references: [id])
+  posts       ForumPost[]
+
+  @@unique([categoryId, slug])
+  @@index([categoryId])
+  @@index([authorId])
+  @@index([isPinned])
+  @@index([lastPostAt])
+}
+
+model ForumPost {
+  id        String   @id @default(uuid())
+  content   String   @db.Text
+  threadId  String
+  authorId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  thread    ForumThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  author    User        @relation("PostAuthor", fields: [authorId], references: [id])
+
+  @@index([threadId])
+  @@index([authorId])
+  @@index([createdAt])
+}
+
+// ============================================
+// Comment Models
+// ============================================
+
+model Comment {
+  id          String   @id @default(uuid())
+  content     String   @db.Text
+  authorId    String
+
+  // Polymorphic relation - only one should be set
+  newsId      String?
+  eventId     String?
+
+  // Nested comments
+  parentId    String?
+  parent      Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies     Comment[] @relation("CommentReplies")
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  author      User     @relation(fields: [authorId], references: [id])
+  news        News?    @relation(fields: [newsId], references: [id], onDelete: Cascade)
+  event       Event?   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([newsId])
+  @@index([eventId])
+  @@index([authorId])
+  @@index([parentId])
+}
+
+// ============================================
+// Direct Message Models
+// ============================================
+
+model Conversation {
+  id           String   @id @default(uuid())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  participants ConversationParticipant[]
+  messages     DirectMessage[]
+}
+
+model ConversationParticipant {
+  id             String   @id @default(uuid())
+  conversationId String
+  userId         String
+  lastReadAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+  @@index([conversationId])
+}
+
+model DirectMessage {
+  id             String   @id @default(uuid())
+  content        String   @db.Text
+  conversationId String
+  senderId       String
+  createdAt      DateTime @default(now())
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User         @relation("MessageSender", fields: [senderId], references: [id])
+
+  @@index([conversationId])
+  @@index([senderId])
+  @@index([createdAt])
+}
+
+// ============================================
+// Friendship Models
+// ============================================
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  BLOCKED
+}
+
+model Friendship {
+  id         String           @id @default(uuid())
+  userId     String
+  friendId   String
+  status     FriendshipStatus @default(PENDING)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  user       User @relation("UserFriends", fields: [userId], references: [id], onDelete: Cascade)
+  friend     User @relation("FriendOf", fields: [friendId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, friendId])
+  @@index([userId])
+  @@index([friendId])
+  @@index([status])
 }
 
 // ============================================
@@ -504,6 +734,72 @@ model SiteSettings {
   metaTitle          String?
   metaDescription    String?
   ogImage            String?
+
+  // SEO Settings
+  seoKeywords            String  @default("")       // comma-separated keywords
+  seoCanonicalUrl        String  @default("")
+  seoRobotsIndex         Boolean @default(true)
+  seoRobotsFollow        Boolean @default(true)
+  seoGoogleSiteVerification String @default("")
+  seoBingSiteVerification   String @default("")
+  seoGoogleAnalyticsId   String  @default("")       // GA4 Measurement ID
+  seoFacebookAppId       String  @default("")
+  seoTwitterCard         String  @default("summary_large_image") // summary, summary_large_image, app, player
+  seoTwitterSite         String  @default("")       // @username
+  seoTwitterCreator      String  @default("")       // @username
+  seoOgType              String  @default("website") // website, article, product, etc.
+  seoOgLocale            String  @default("sv_SE")
+
+  // Security Settings
+  requireEmailVerification    Boolean @default(false)
+  enableTwoFactor            Boolean @default(true)
+  sessionTimeout             Int     @default(24)      // hours
+  maxLoginAttempts           Int     @default(5)
+  loginLockoutDuration       Int     @default(30)      // minutes
+  passwordMinLength          Int     @default(8)
+  passwordRequireUppercase   Boolean @default(true)
+  passwordRequireLowercase   Boolean @default(true)
+  passwordRequireNumbers     Boolean @default(true)
+  passwordRequireSpecialChars Boolean @default(true)
+  enableRateLimiting         Boolean @default(true)
+  rateLimitRequests          Int     @default(100)
+  rateLimitWindow            Int     @default(15)      // minutes
+  enableCORS                 Boolean @default(true)
+  allowedOrigins             String  @default("http://localhost:5173")
+  enableCSRF                 Boolean @default(true)
+  ipWhitelist                String  @default("")       // newline-separated IPs
+  ipBlacklist                String  @default("")       // newline-separated IPs
+
+  // Notification Settings
+  enableEmailNotifications    Boolean @default(true)
+  enableDiscordNotifications  Boolean @default(true)
+  enablePushNotifications     Boolean @default(false)
+  smtpHost                   String  @default("smtp.gmail.com")
+  smtpPort                   Int     @default(587)
+  smtpSecure                 Boolean @default(true)
+  smtpUser                   String  @default("")
+  smtpPassword               String  @default("")       // TODO: Encrypt this!
+  emailFromAddress           String  @default("noreply@swedenvikings.eu")
+  emailFromName              String  @default("Sweden Vikings")
+  discordWebhookUrl          String  @default("")
+  discordBotToken            String  @default("")       // TODO: Encrypt this!
+  notifyOnNewUser            Boolean @default(true)
+  notifyOnNewTicket          Boolean @default(true)
+  notifyOnNewNews            Boolean @default(false)
+  notifyOnNewEvent           Boolean @default(false)
+  notifyOnServerDown         Boolean @default(true)
+  adminEmailAddresses        String  @default("")       // newline-separated emails
+
+  // Database Settings
+  enableAutoBackup           Boolean @default(true)
+  backupFrequency            String  @default("daily")  // hourly, daily, weekly, monthly
+  backupRetentionDays        Int     @default(30)
+  backupLocation             String  @default("/var/backups/swedenvikings")
+  enableDatabaseOptimization Boolean @default(true)
+  optimizationSchedule       String  @default("weekly") // daily, weekly, monthly
+  maxDatabaseSize            Int     @default(10)       // GB
+  enableQueryLogging         Boolean @default(false)
+  slowQueryThreshold         Int     @default(1000)     // ms
 }
 
 model ActivityLog {
@@ -531,5 +827,423 @@ model Backup {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+}
+
+// ============================================
+// Player Stats & Battlelog Models
+// ============================================
+
+model PlayerStats {
+  id                String   @id @default(uuid())
+  userId            String?  @unique // Optional - linked when user links their account
+
+  // Cross-platform identity (primary key for stats from game)
+  platform          String   @default("steam") // "steam", "xbox", "psn"
+  platformId        String   @default("")      // Steam ID 64, XUID, or PSN Account ID
+  platformUsername  String?  // Username from the platform
+
+  // General Stats
+  totalPlaytime     Int      @default(0)     // Total seconds played
+  gamesPlayed       Int      @default(0)
+  gamesWon          Int      @default(0)
+  gamesLost         Int      @default(0)
+  winRate           Float    @default(0)
+
+  // Combat Stats
+  kills             Int      @default(0)
+  deaths            Int      @default(0)
+  assists           Int      @default(0)
+  headshots         Int      @default(0)
+  kdr               Float    @default(0)
+  accuracy          Float    @default(0)
+
+  // Arma Reforger Specific
+  pointsCaptured    Int      @default(0)
+  pointsDefended    Int      @default(0)
+  suppliesDelivered Int      @default(0)
+  vehiclesDestroyed Int      @default(0)
+  revives           Int      @default(0)
+  teamKills         Int      @default(0)
+
+  // Distance & Movement
+  distanceTraveled  Float    @default(0)     // In kilometers
+
+  // Best Performance
+  longestKillStreak Int      @default(0)
+  bestScore         Int      @default(0)
+  mostKillsInGame   Int      @default(0)
+
+  // XP & Level
+  experiencePoints  Int      @default(0)
+  level             Int      @default(1)
+
+  // Rankings
+  globalRank        Int?
+  countryRank       Int?
+
+  // Preferred faction for battlelog display
+  preferredFaction  Faction  @default(NATO)
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user              User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  matches           Match[]
+  weaponStats       WeaponStats[]
+  vehicleStats      VehicleStats[]
+
+  @@unique([platform, platformId])
+  @@index([userId])
+  @@index([platform])
+  @@index([platformId])
+  @@index([level])
+  @@index([experiencePoints])
+  @@index([globalRank])
+}
+
+model Match {
+  id               String   @id @default(uuid())
+  playerStatsId    String
+
+  // Match Info
+  map              String
+  gameMode         String
+  duration         Int      // Seconds
+  result           String   // win, loss, draw
+
+  // Player Performance
+  kills            Int      @default(0)
+  deaths           Int      @default(0)
+  assists          Int      @default(0)
+  score            Int      @default(0)
+
+  // Arma Specific
+  pointsCaptured   Int      @default(0)
+  pointsDefended   Int      @default(0)
+  suppliesDelivered Int     @default(0)
+  revives          Int      @default(0)
+
+  // Rewards
+  xpEarned         Int      @default(0)
+
+  playedAt         DateTime @default(now())
+
+  playerStats      PlayerStats @relation(fields: [playerStatsId], references: [id], onDelete: Cascade)
+
+  @@index([playerStatsId])
+  @@index([playedAt])
+  @@index([result])
+}
+
+// ============================================
+// Medals & Achievements Models
+// ============================================
+
+model Medal {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String
+  category    String   // combat, objective, support, special
+  tier        String   // bronze, silver, gold, platinum
+  icon        String   // Icon name or URL
+  imageUrl    String?  // Full medal image
+  rarity      String   @default("common") // common, rare, epic, legendary
+
+  // Unlock Requirements
+  requirement Json     // Flexible requirements object
+
+  createdAt   DateTime @default(now())
+
+  userMedals  UserMedal[]
+
+  @@index([category])
+  @@index([tier])
+  @@index([rarity])
+}
+
+model UserMedal {
+  id         String   @id @default(uuid())
+  userId     String
+  medalId    String
+
+  // Progress tracking
+  progress   Int      @default(0)
+  maxProgress Int     @default(100)
+  isUnlocked Boolean  @default(false)
+
+  unlockedAt DateTime?
+  createdAt  DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  medal      Medal    @relation(fields: [medalId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, medalId])
+  @@index([userId])
+  @@index([isUnlocked])
+}
+
+model Achievement {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String
+  category    String   // kills, objectives, teamwork, special
+  icon        String
+
+  // Requirements
+  requirement Json
+
+  // Rewards
+  xpReward    Int      @default(0)
+
+  isHidden    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  userAchievements UserAchievement[]
+
+  @@index([category])
+}
+
+model UserAchievement {
+  id            String   @id @default(uuid())
+  userId        String
+  achievementId String
+
+  progress      Int      @default(0)
+  maxProgress   Int      @default(100)
+  isCompleted   Boolean  @default(false)
+
+  completedAt   DateTime?
+  createdAt     DateTime @default(now())
+
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementId])
+  @@index([userId])
+  @@index([isCompleted])
+}
+
+// ============================================
+// GDPR & Privacy Models
+// ============================================
+
+model CookieConsent {
+  id                    String   @id @default(uuid())
+  userId                String?  @unique
+
+  // Consent types
+  necessary             Boolean  @default(true)   // Always true (required for site to function)
+  analytics             Boolean  @default(false)  // Google Analytics, stats tracking
+  marketing             Boolean  @default(false)  // Marketing cookies, ads
+  preferences           Boolean  @default(false)  // User preferences, theme, language
+
+  // Metadata
+  ipAddress             String?
+  userAgent             String?
+  consentVersion        String   @default("1.0")
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model DataExportRequest {
+  id          String   @id @default(uuid())
+  userId      String
+
+  status      String   @default("pending")  // pending, processing, completed, failed
+  fileUrl     String?  // URL to download zip file
+  fileSize    BigInt?  // Size in bytes
+  expiresAt   DateTime? // When the download link expires (24-48 hours)
+
+  requestedAt DateTime @default(now())
+  completedAt DateTime?
+
+  @@index([userId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model DataDeletionRequest {
+  id           String   @id @default(uuid())
+  userId       String
+
+  status       String   @default("pending")  // pending, approved, rejected, completed
+  reason       String?  @db.Text
+
+  reviewedById String?
+  reviewNote   String?  @db.Text
+
+  // Verification (require user to confirm via email)
+  verificationToken String? @unique
+  verifiedAt        DateTime?
+
+  requestedAt  DateTime @default(now())
+  reviewedAt   DateTime?
+  completedAt  DateTime?
+  scheduledFor DateTime? // Allow 30 day grace period
+
+  @@index([userId])
+  @@index([status])
+  @@index([scheduledFor])
+}
+
+// ============================================
+// Battlelog - Weapons, Vehicles & Equipment
+// ============================================
+
+enum Faction {
+  NATO
+  RUS
+  NEUTRAL
+}
+
+enum WeaponType {
+  ASSAULT_RIFLE
+  SNIPER_RIFLE
+  MACHINE_GUN
+  SUBMACHINE_GUN
+  PISTOL
+  SHOTGUN
+  GRENADE_LAUNCHER
+  ROCKET_LAUNCHER
+  MELEE
+}
+
+enum VehicleType {
+  TANK
+  APC
+  IFV
+  TRUCK
+  CAR
+  HELICOPTER
+  BOAT
+  STATIC_WEAPON
+}
+
+model Weapon {
+  id          String      @id @default(uuid())
+  name        String      @unique
+  displayName String
+  description String?     @db.Text
+
+  type        WeaponType
+  faction     Faction     @default(NEUTRAL)
+
+  // Mod information
+  modSource   String      // WCS, ACE, RHS, Vanilla, etc.
+
+  // Image
+  imageUrl    String?
+  iconUrl     String?
+
+  // Stats (optional - for display)
+  damage      Int?
+  accuracy    Int?
+  range       Int?
+  fireRate    Int?
+
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  weaponStats WeaponStats[]
+
+  @@index([faction])
+  @@index([type])
+  @@index([modSource])
+  @@index([isActive])
+}
+
+model Vehicle {
+  id          String      @id @default(uuid())
+  name        String      @unique
+  displayName String
+  description String?     @db.Text
+
+  type        VehicleType
+  faction     Faction     @default(NEUTRAL)
+
+  // Mod information
+  modSource   String      // WCS, ACE, RHS, Vanilla, etc.
+
+  // Image
+  imageUrl    String?
+  iconUrl     String?
+
+  // Stats (optional - for display)
+  armor       Int?
+  speed       Int?
+  capacity    Int?        // Passenger capacity
+
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  vehicleStats VehicleStats[]
+
+  @@index([faction])
+  @@index([type])
+  @@index([modSource])
+  @@index([isActive])
+}
+
+// User's weapon statistics
+model WeaponStats {
+  id              String   @id @default(uuid())
+  playerStatsId   String
+  weaponId        String
+
+  kills           Int      @default(0)
+  deaths          Int      @default(0)
+  headshots       Int      @default(0)
+  shots           Int      @default(0)
+  hits            Int      @default(0)
+
+  timeUsed        Int      @default(0) // seconds
+
+  // Service stars (earned every 100 kills)
+  serviceStars    Int      @default(0)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  playerStats     PlayerStats @relation(fields: [playerStatsId], references: [id], onDelete: Cascade)
+  weapon          Weapon      @relation(fields: [weaponId], references: [id], onDelete: Cascade)
+
+  @@unique([playerStatsId, weaponId])
+  @@index([playerStatsId])
+  @@index([weaponId])
+  @@index([kills])
+}
+
+// User's vehicle statistics
+model VehicleStats {
+  id              String   @id @default(uuid())
+  playerStatsId   String
+  vehicleId       String
+
+  kills           Int      @default(0)
+  deaths          Int      @default(0)
+  destroyed       Int      @default(0) // Times this vehicle was destroyed
+
+  timeUsed        Int      @default(0) // seconds
+  distanceTraveled Int     @default(0) // meters
+
+  // Service stars (earned every 50 kills or 10 hours)
+  serviceStars    Int      @default(0)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  playerStats     PlayerStats @relation(fields: [playerStatsId], references: [id], onDelete: Cascade)
+  vehicle         Vehicle     @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@unique([playerStatsId, vehicleId])
+  @@index([playerStatsId])
+  @@index([vehicleId])
+  @@index([kills])
 }
 

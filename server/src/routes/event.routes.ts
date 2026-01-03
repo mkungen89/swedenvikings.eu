@@ -8,6 +8,7 @@ import { isAuthenticated, hasPermission } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { sendSuccess, sendPaginated, errors } from '../utils/apiResponse';
 import { prisma } from '../utils/prisma';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -245,6 +246,38 @@ router.post('/',
           },
         },
       });
+
+      // Send notifications if published
+      if (event.isPublished) {
+        const notifyNewEvent = async () => {
+          try {
+            const settings = await prisma.siteSettings.findUnique({
+              where: { id: 'main' },
+            });
+
+            if (!settings || !settings.notifyOnNewEvent) return;
+
+            // Discord notification
+            if (settings.enableDiscordNotifications) {
+              const { discordService } = await import('../services/discord.service');
+              await discordService.sendNewEventNotification({
+                id: event.id,
+                title: event.title,
+                description: event.description,
+                startDate: event.startDate,
+                maxParticipants: event.maxParticipants || undefined,
+              });
+            }
+          } catch (error) {
+            logger.error('Failed to send event notifications:', error);
+          }
+        };
+
+        // Run notifications in background
+        notifyNewEvent().catch((error) => {
+          logger.error('Event notification error:', error);
+        });
+      }
 
       sendSuccess(res, event, undefined, 201);
     } catch (error) {

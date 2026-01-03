@@ -237,7 +237,10 @@ export default function AdminServer() {
       await startServer.mutateAsync(selectedConnection);
       toast.success('Server startar...');
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Kunde inte starta servern');
+      const message = error.response?.data?.error?.message 
+        || error.response?.data?.message 
+        || 'Kunde inte starta servern';
+      toast.error(message);
     }
   };
 
@@ -246,7 +249,10 @@ export default function AdminServer() {
       await stopServer.mutateAsync(selectedConnection);
       toast.success('Server stoppar...');
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Kunde inte stoppa servern');
+      const message = error.response?.data?.error?.message 
+        || error.response?.data?.message 
+        || 'Kunde inte stoppa servern';
+      toast.error(message);
     }
   };
 
@@ -255,7 +261,10 @@ export default function AdminServer() {
       await restartServer.mutateAsync(selectedConnection);
       toast.success('Server startar om...');
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Kunde inte starta om servern');
+      const message = error.response?.data?.error?.message 
+        || error.response?.data?.message 
+        || 'Kunde inte starta om servern';
+      toast.error(message);
     }
   };
 
@@ -264,7 +273,10 @@ export default function AdminServer() {
       await installServer.mutateAsync(selectedConnection);
       toast.success('Installation påbörjad...');
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Kunde inte starta installation');
+      const message = error.response?.data?.error?.message 
+        || error.response?.data?.message 
+        || 'Kunde inte starta installation';
+      toast.error(message);
     }
   };
 
@@ -462,27 +474,120 @@ export default function AdminServer() {
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
-                className="card p-4"
+                className="card overflow-hidden"
               >
-                <div className="flex items-center gap-4">
-                  {installProgress.status === 'error' ? (
-                    <AlertCircle className="w-6 h-6 text-red-400" />
-                  ) : installProgress.status === 'complete' ? (
-                    <CheckCircle className="w-6 h-6 text-green-400" />
-                  ) : (
-                    <Loader2 className="w-6 h-6 text-primary animate-spin" />
-                  )}
-                  <div className="flex-1">
-                    <div className="flex justify-between text-sm mb-1">
-                      <span>{installProgress.message}</span>
-                      <span>{installProgress.progress}%</span>
+                {/* Progress Header */}
+                <div className={`px-4 py-3 ${
+                  installProgress.status === 'error' 
+                    ? 'bg-red-500/20 border-b border-red-500/30' 
+                    : installProgress.status === 'complete' 
+                    ? 'bg-green-500/20 border-b border-green-500/30'
+                    : 'bg-primary/20 border-b border-primary/30'
+                }`}>
+                  <div className="flex items-center gap-3">
+                    {installProgress.status === 'error' ? (
+                      <AlertCircle className="w-6 h-6 text-red-400" />
+                    ) : installProgress.status === 'complete' ? (
+                      <CheckCircle className="w-6 h-6 text-green-400" />
+                    ) : (
+                      <Loader2 className="w-6 h-6 text-primary animate-spin" />
+                    )}
+                    <div className="flex-1">
+                      <h3 className="font-semibold">
+                        {installProgress.status === 'error' 
+                          ? 'Installation misslyckades' 
+                          : installProgress.status === 'complete'
+                          ? 'Installation klar!'
+                          : 'Installerar server...'}
+                      </h3>
+                      <p className="text-sm text-gray-400">
+                        {installProgress.status === 'downloading' && 'Laddar ner serverfiler från Steam'}
+                        {installProgress.status === 'extracting' && 'Extraherar filer'}
+                        {installProgress.status === 'configuring' && 'Konfigurerar server'}
+                        {installProgress.status === 'complete' && 'Servern är redo att användas'}
+                        {installProgress.status === 'error' && 'Ett fel uppstod under installationen'}
+                      </p>
                     </div>
-                    <div className="h-2 bg-background-darker rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-primary transition-all duration-300"
-                        style={{ width: `${installProgress.progress}%` }}
-                      />
-                    </div>
+                    <span className={`text-2xl font-bold ${
+                      installProgress.status === 'error' 
+                        ? 'text-red-400' 
+                        : installProgress.status === 'complete' 
+                        ? 'text-green-400'
+                        : 'text-primary'
+                    }`}>
+                      {installProgress.progress}%
+                    </span>
+                  </div>
+                </div>
+                
+                {/* Progress Bar */}
+                <div className="relative">
+                  <div className="h-3 bg-background-darker">
+                    <motion.div 
+                      initial={{ width: 0 }}
+                      animate={{ width: `${installProgress.progress}%` }}
+                      transition={{ duration: 0.5, ease: 'easeOut' }}
+                      className={`h-full relative overflow-hidden ${
+                        installProgress.status === 'error' 
+                          ? 'bg-red-500' 
+                          : installProgress.status === 'complete' 
+                          ? 'bg-green-500'
+                          : 'bg-gradient-to-r from-primary to-blue-500'
+                      }`}
+                    >
+                      {/* Animated shimmer effect during download */}
+                      {installProgress.status !== 'error' && installProgress.status !== 'complete' && (
+                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer" />
+                      )}
+                    </motion.div>
+                  </div>
+                </div>
+                
+                {/* Status Message */}
+                <div className="px-4 py-3 bg-background-darker/50">
+                  <div className="flex items-center gap-2 text-sm">
+                    {installProgress.status !== 'error' && installProgress.status !== 'complete' && (
+                      <span className="flex h-2 w-2 relative">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+                      </span>
+                    )}
+                    <span className={
+                      installProgress.status === 'error' 
+                        ? 'text-red-400' 
+                        : installProgress.status === 'complete' 
+                        ? 'text-green-400'
+                        : 'text-gray-300'
+                    }>
+                      {installProgress.message}
+                    </span>
+                  </div>
+                  
+                  {/* Installation Steps */}
+                  <div className="mt-3 flex items-center gap-2 text-xs text-gray-500">
+                    <InstallStep 
+                      label="SteamCMD" 
+                      completed={installProgress.progress >= 40} 
+                      active={installProgress.progress < 40 && installProgress.status !== 'error'}
+                    />
+                    <div className="w-8 h-px bg-gray-700" />
+                    <InstallStep 
+                      label="Nedladdning" 
+                      completed={installProgress.progress >= 95} 
+                      active={installProgress.progress >= 40 && installProgress.progress < 95 && installProgress.status !== 'error'}
+                    />
+                    <div className="w-8 h-px bg-gray-700" />
+                    <InstallStep 
+                      label="Validering" 
+                      completed={installProgress.progress >= 99} 
+                      active={installProgress.progress >= 95 && installProgress.progress < 99 && installProgress.status !== 'error'}
+                    />
+                    <div className="w-8 h-px bg-gray-700" />
+                    <InstallStep 
+                      label="Klar" 
+                      completed={installProgress.status === 'complete'} 
+                      active={installProgress.progress >= 99 && installProgress.status !== 'complete' && installProgress.status !== 'error'}
+                    />
                   </div>
                 </div>
               </motion.div>
@@ -1334,12 +1439,12 @@ export default function AdminServer() {
                 onChange={(e) => setConsoleInput(e.target.value)}
                 placeholder="Skriv RCON-kommando..."
                 className="input flex-1 font-mono"
-                disabled={!serverStatus?.isOnline || !serverStatus?.rconEnabled}
+                disabled={!serverStatus?.isOnline}
               />
               <button 
                 type="submit" 
                 className="btn-primary"
-                disabled={!serverStatus?.isOnline || !serverStatus?.rconEnabled || sendCommand.isPending}
+                disabled={!serverStatus?.isOnline || !serverStatus?.rconEnabled === false || sendCommand.isPending}
               >
                 {sendCommand.isPending ? (
                   <Loader2 className="w-5 h-5 animate-spin" />
@@ -2002,6 +2107,24 @@ interface AddModModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAdd: any;
+}
+
+// Installation Step Indicator Component
+function InstallStep({ label, completed, active }: { label: string; completed: boolean; active: boolean }) {
+  return (
+    <div className={`flex items-center gap-1.5 ${
+      completed ? 'text-green-400' : active ? 'text-primary' : 'text-gray-500'
+    }`}>
+      {completed ? (
+        <CheckCircle className="w-4 h-4" />
+      ) : active ? (
+        <Loader2 className="w-4 h-4 animate-spin" />
+      ) : (
+        <div className="w-4 h-4 rounded-full border border-current" />
+      )}
+      <span className={completed || active ? 'font-medium' : ''}>{label}</span>
+    </div>
+  );
 }
 
 function AddModModal({ isOpen, onClose, onAdd }: AddModModalProps) {

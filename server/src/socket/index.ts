@@ -56,6 +56,37 @@ export function initializeSocket(httpServer: HttpServer): void {
       socket.leave(`user:${userId}`);
     });
 
+    // Join conversation room for direct messages
+    socket.on('join:conversation', (conversationId: string) => {
+      socket.join(`conversation:${conversationId}`);
+      logger.debug(`Socket ${socket.id} joined conversation: ${conversationId}`);
+    });
+
+    // Leave conversation room
+    socket.on('leave:conversation', (conversationId: string) => {
+      socket.leave(`conversation:${conversationId}`);
+    });
+
+    // Join forum thread room
+    socket.on('join:thread', (threadId: string) => {
+      socket.join(`thread:${threadId}`);
+      logger.debug(`Socket ${socket.id} joined thread: ${threadId}`);
+    });
+
+    // Leave forum thread room
+    socket.on('leave:thread', (threadId: string) => {
+      socket.leave(`thread:${threadId}`);
+    });
+
+    // Typing indicator for messages
+    socket.on('typing:start', (data: { conversationId: string; userId: string }) => {
+      socket.to(`conversation:${data.conversationId}`).emit('typing:start', { userId: data.userId });
+    });
+
+    socket.on('typing:stop', (data: { conversationId: string; userId: string }) => {
+      socket.to(`conversation:${data.conversationId}`).emit('typing:stop', { userId: data.userId });
+    });
+
     socket.on('disconnect', () => {
       logger.debug(`Socket disconnected: ${socket.id}`);
     });

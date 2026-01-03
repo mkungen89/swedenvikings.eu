@@ -197,72 +197,175 @@ notification          - Användarnotifikation
 
 ---
 
-## Deployment till Ubuntu VPS
+## Deployment till Ubuntu VPS (Native - No Docker)
+
+Vi kör **allt direkt på Ubuntu** utan Docker i produktion:
+- PostgreSQL 16 (native)
+- Redis 7 (native)
+- Node.js 20 LTS (native)
+- PM2 för processhantering
+- Nginx reverse proxy
+- Arma Reforger server direkt på systemet
 
 ### Filer för deployment
 
 ```
-Dockerfile              # Multi-stage Docker build
-docker-compose.prod.yml # Produktion Docker Compose
-.env.example            # Mall för miljövariabler
-.dockerignore           # Filer att exkludera från Docker
-.github/workflows/deploy.yml  # GitHub Actions CI/CD
-nginx/swedenvikings.conf      # Nginx reverse proxy
+.env.example.production         # Production miljövariabler mall
+ecosystem.config.js             # PM2 process manager config
+nginx/swedenvikings.conf        # Nginx reverse proxy
 scripts/
-  setup-server.sh       # Initial VPS setup
-  deploy.sh             # Manuell deployment
-  backup.sh             # Databas backup
-  restore.sh            # Databas restore
-  logs.sh               # Visa container logs
-  update-arma.sh        # Uppdatera Arma server
+  setup-server.sh               # Installera allt på Ubuntu (kör EN gång)
+  deploy.sh                     # Deploy/uppdatera applikation
+  backup.sh                     # Databas backup
+  restore.sh                    # Databas restore
+  logs.sh                       # Visa PM2 logs
+  update-arma.sh                # Uppdatera Arma server
+  swedenvikings.service         # Systemd service (backup till PM2)
 ```
 
 ### GitHub Secrets för CI/CD
 
 Konfigurera dessa i GitHub repository settings:
 - `VPS_HOST` - IP eller domän till VPS
-- `VPS_USER` - SSH-användare (t.ex. `deploy`)
+- `VPS_USER` - `deploy`
 - `VPS_SSH_KEY` - Privat SSH-nyckel
-- `VPS_PORT` - SSH port (standard: 22)
-- `DISCORD_WEBHOOK_ADMIN` - Discord webhook för deploy-notifieringar
+- `VPS_PORT` - `22`
+- `DISCORD_WEBHOOK_ADMIN` - Discord webhook för deploy-notifieringar (optional)
 
-### Deployment workflow
+### Quick Start Deployment
 
-1. **Förbered VPS:**
-   ```bash
-   # Kör som root på VPS
-   curl -O https://raw.githubusercontent.com/YOUR_USER/swedenvikings/main/scripts/setup-server.sh
-   sudo bash setup-server.sh
-   ```
+#### Steg 1: Initial Server Setup (EN GÅNG)
 
-2. **Klona repo:**
-   ```bash
-   su - deploy
-   cd /opt/swedenvikings
-   git clone https://github.com/YOUR_USER/swedenvikings.eu.git .
-   ```
+```bash
+# Kör som root på ny Ubuntu 24.04 VPS
+curl -O https://raw.githubusercontent.com/YOUR_USER/swedenvikings.eu/main/scripts/setup-server.sh
+sudo bash setup-server.sh
+```
 
-3. **Konfigurera miljövariabler:**
-   ```bash
-   cp .env.example .env.production
-   nano .env.production  # Fyll i dina värden
-   ```
+Detta installerar:
+- ✓ PostgreSQL 16
+- ✓ Redis 7
+- ✓ Node.js 20 LTS
+- ✓ PM2 processhanterare
+- ✓ Nginx web server
+- ✓ Certbot för SSL
+- ✓ SteamCMD för Arma Reforger
 
-4. **Setup Nginx & SSL:**
-   ```bash
-   sudo cp nginx/swedenvikings.conf /etc/nginx/sites-available/swedenvikings
-   # Redigera domännamn i filen
-   sudo ln -s /etc/nginx/sites-available/swedenvikings /etc/nginx/sites-enabled/
-   sudo rm /etc/nginx/sites-enabled/default
-   sudo nginx -t && sudo systemctl reload nginx
-   sudo certbot --nginx -d yourdomain.com
-   ```
+#### Steg 2: Deploy Application
 
-5. **Starta tjänsterna:**
-   ```bash
-   docker compose -f docker-compose.prod.yml up -d
-   docker compose -f docker-compose.prod.yml exec app npx prisma migrate deploy
-   ```
+```bash
+# Logga in som deploy user
+su - deploy
+
+# Klona repo
+cd /opt/swedenvikings
+git clone https://github.com/YOUR_USER/swedenvikings.eu.git .
+
+# Installera dependencies och bygg
+npm install
+npm run build
+
+# Kopiera och konfigurera miljövariabler
+cp .env.example.production .env.production
+nano .env.production  # Fyll i:
+  # - SESSION_SECRET (generera: openssl rand -base64 64)
+  # - STEAM_API_KEY
+  # - Database password
+  # - Din domän
+
+# Kör database migrations
+cd server && npx prisma migrate deploy && cd ..
+
+# Starta med PM2
+pm2 start ecosystem.config.js --env production
+pm2 save
+```
+
+#### Steg 3: Konfigurera Nginx & SSL
+
+```bash
+# Kopiera Nginx config
+sudo cp nginx/swedenvikings.conf /etc/nginx/sites-available/swedenvikings
+
+# Redigera domännamn
+sudo nano /etc/nginx/sites-available/swedenvikings
+# Ersätt 'yourdomain.com' med din domän
+
+# Aktivera site
+sudo ln -s /etc/nginx/sites-available/swedenvikings /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t && sudo systemctl reload nginx
+
+# Skaffa SSL-certifikat
+sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com
+```
+
+#### Steg 4: Verifiera
+
+```bash
+# Kolla PM2 status
+pm2 status
+pm2 logs swedenvikings
+
+# Kolla Nginx
+sudo systemctl status nginx
+
+# Kolla PostgreSQL
+sudo systemctl status postgresql
+
+# Kolla Redis
+sudo systemctl status redis-server
+
+# Test hemsida
+curl https://yourdomain.com
+```
+
+### Hantera Applikationen
+
+```bash
+# Starta
+pm2 start ecosystem.config.js --env production
+
+# Stoppa
+pm2 stop swedenvikings
+
+# Starta om
+pm2 restart swedenvikings
+
+# Reload (zero-downtime)
+pm2 reload swedenvikings
+
+# Logs (live)
+pm2 logs swedenvikings
+
+# Logs (senaste 100 rader)
+pm2 logs swedenvikings --lines 100
+
+# Monitoring
+pm2 monit
+
+# Status
+pm2 status
+
+# Spara PM2 config (körs vid boot)
+pm2 save
+```
+
+### Uppdatera Applikationen
+
+```bash
+# Automatisk deploy script
+cd /opt/swedenvikings
+bash scripts/deploy.sh
+
+# Eller manuellt:
+git pull origin main
+npm install
+npm run build
+cd server && npx prisma migrate deploy && cd ..
+pm2 reload ecosystem.config.js --env production
+pm2 save
+```
 
 ### Linux server paths
 
@@ -270,6 +373,31 @@ Konfigurera dessa i GitHub repository settings:
 /opt/swedenvikings/           # CMS projekt
 /opt/arma-reforger-server/    # Arma server
 /opt/steamcmd/                # SteamCMD
+/var/log/swedenvikings/       # Applikationsloggar
+```
+
+### Systemd Service (Alternativ till PM2)
+
+Om du föredrar systemd istället för PM2:
+
+```bash
+# Kopiera service file
+sudo cp scripts/swedenvikings.service /etc/systemd/system/
+
+# Reload systemd
+sudo systemctl daemon-reload
+
+# Aktivera service
+sudo systemctl enable swedenvikings
+
+# Starta service
+sudo systemctl start swedenvikings
+
+# Status
+sudo systemctl status swedenvikings
+
+# Logs
+sudo journalctl -u swedenvikings -f
 ```
 
 ### Brandväggsregler (UFW)
@@ -285,7 +413,55 @@ ufw allow 17777/udp   # Arma Reforger query
 ### VPS Rekommenderade specs
 
 - **CPU:** 4+ cores (Arma är CPU-intensiv)
-- **RAM:** 16GB+ (8GB Arma, 4GB CMS/DB)
-- **Disk:** 50GB+ SSD
+- **RAM:** 16GB+ (8GB Arma, 4GB CMS/DB, 2GB system, 2GB buffer)
+- **Disk:** 50GB+ SSD (20GB OS, 15GB Arma, 10GB CMS, 5GB logs/backups)
 - **OS:** Ubuntu 24.04 LTS
+- **Network:** 100 Mbps+ (för multiplayer)
+
+### Monitoring & Troubleshooting
+
+```bash
+# PM2 Monitoring
+pm2 monit                    # Live monitoring dashboard
+pm2 logs --lines 200         # Senaste loggarna
+pm2 restart all              # Restart alla processer
+
+# System Resources
+htop                         # CPU/RAM usage
+df -h                        # Disk usage
+free -h                      # Memory usage
+
+# Nginx
+sudo nginx -t                # Test config
+sudo systemctl status nginx
+sudo tail -f /var/log/nginx/swedenvikings_error.log
+
+# PostgreSQL
+sudo systemctl status postgresql
+sudo -u postgres psql -d swedenvikings -c "SELECT version();"
+
+# Redis
+redis-cli ping
+redis-cli info stats
+
+# Arma Reforger Server
+ps aux | grep Arma           # Kolla om processen körs
+```
+
+### Backup & Restore
+
+```bash
+# Backup databas
+bash scripts/backup.sh
+
+# Restore databas
+bash scripts/restore.sh backup_filename.sql
+
+# Manuell backup
+pg_dump -U swedenvikings swedenvikings > backup_$(date +%Y%m%d).sql
+
+# Automatisk backup (cron)
+# Lägg till i crontab: crontab -e
+0 2 * * * cd /opt/swedenvikings && bash scripts/backup.sh
+```
 

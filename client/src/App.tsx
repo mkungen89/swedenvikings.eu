@@ -15,13 +15,22 @@ import EventDetails from '@/pages/EventDetails';
 import Rules from '@/pages/Rules';
 import Clans from '@/pages/Clans';
 import ClanDetails from '@/pages/ClanDetails';
+import Leaderboards from '@/pages/Leaderboards';
+import Privacy from '@/pages/Privacy';
+import Terms from '@/pages/Terms';
 import Login from '@/pages/Login';
 import AuthCallback from '@/pages/AuthCallback';
+import LinkAccount from '@/pages/LinkAccount';
 
 // User Pages
-import Profile from '@/pages/Profile';
+import ProfileNew from '@/pages/ProfileNew';
 import Settings from '@/pages/Settings';
 import MyTickets from '@/pages/MyTickets';
+import Forum from '@/pages/Forum';
+import ForumCategory from '@/pages/ForumCategory';
+import ForumThread from '@/pages/ForumThread';
+import Messages from '@/pages/Messages';
+import Friends from '@/pages/Friends';
 
 // Admin Pages
 import AdminDashboard from '@/pages/admin/Dashboard';
@@ -30,13 +39,16 @@ import AdminRoles from '@/pages/admin/Roles';
 import AdminNews from '@/pages/admin/News';
 import AdminEvents from '@/pages/admin/Events';
 import AdminServer from '@/pages/admin/Server';
+import AdminProgression from '@/pages/admin/Progression';
 import AdminLogs from '@/pages/admin/Logs';
 import AdminSettings from '@/pages/admin/Settings';
 import AdminTickets from '@/pages/admin/Tickets';
+import AdminBattlelog from '@/pages/admin/Battlelog';
 
 // Components
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import AdminRoute from '@/components/auth/AdminRoute';
+import CookieConsent from '@/components/gdpr/CookieConsent';
 
 function App() {
   const { checkAuth, isLoading } = useAuthStore();
@@ -57,27 +69,39 @@ function App() {
   }
 
   return (
-    <Routes>
-      {/* Public Routes */}
-      <Route element={<MainLayout />}>
-        <Route path="/" element={<Home />} />
-        <Route path="/news" element={<News />} />
-        <Route path="/news/:slug" element={<NewsArticle />} />
-        <Route path="/events" element={<Events />} />
-        <Route path="/events/:slug" element={<EventDetails />} />
-        <Route path="/rules" element={<Rules />} />
-        <Route path="/clans" element={<Clans />} />
-        <Route path="/clans/:id" element={<ClanDetails />} />
-        <Route path="/profile/:id" element={<Profile />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/auth/callback" element={<AuthCallback />} />
+    <>
+      <Routes>
+        {/* Public Routes */}
+        <Route element={<MainLayout />}>
+          <Route path="/" element={<Home />} />
+          <Route path="/news" element={<News />} />
+          <Route path="/news/:slug" element={<NewsArticle />} />
+          <Route path="/events" element={<Events />} />
+          <Route path="/events/:slug" element={<EventDetails />} />
+          <Route path="/rules" element={<Rules />} />
+          <Route path="/clans" element={<Clans />} />
+          <Route path="/clans/:id" element={<ClanDetails />} />
+          <Route path="/leaderboards" element={<Leaderboards />} />
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/terms" element={<Terms />} />
+          <Route path="/profile/:id" element={<ProfileNew />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
+          <Route path="/link-account" element={<LinkAccount />} />
 
-        {/* Protected User Routes */}
-        <Route element={<ProtectedRoute />}>
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/tickets" element={<MyTickets />} />
+          {/* Forum Routes (public read) */}
+          <Route path="/forum" element={<Forum />} />
+          <Route path="/forum/:slug" element={<ForumCategory />} />
+          <Route path="/forum/thread/:id" element={<ForumThread />} />
+
+          {/* Protected User Routes */}
+          <Route element={<ProtectedRoute />}>
+            <Route path="/settings" element={<Settings />} />
+            <Route path="/tickets" element={<MyTickets />} />
+            <Route path="/messages" element={<Messages />} />
+            <Route path="/friends" element={<Friends />} />
+          </Route>
         </Route>
-      </Route>
 
       {/* Admin Routes */}
       <Route element={<AdminRoute />}>
@@ -88,12 +112,18 @@ function App() {
           <Route path="news" element={<AdminNews />} />
           <Route path="events" element={<AdminEvents />} />
           <Route path="server" element={<AdminServer />} />
+          <Route path="progression" element={<AdminProgression />} />
+          <Route path="battlelog" element={<AdminBattlelog />} />
           <Route path="logs" element={<AdminLogs />} />
           <Route path="tickets" element={<AdminTickets />} />
           <Route path="settings" element={<AdminSettings />} />
         </Route>
       </Route>
-    </Routes>
+      </Routes>
+
+      {/* Cookie Consent Banner */}
+      <CookieConsent />
+    </>
   );
 }
 

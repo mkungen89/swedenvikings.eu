@@ -35,12 +35,23 @@ export default {
           800: '#155e75',
           900: '#164e63',
         },
-        // Background colors
+        // Background colors (Dark mode)
         background: {
           dark: '#0f172a',
           darker: '#0a0f1c',
           card: '#1e293b',
           cardHover: '#334155',
+        },
+        // Light mode backgrounds
+        light: {
+          bg: '#ffffff',
+          bgSecondary: '#f8fafc',
+          card: '#ffffff',
+          cardHover: '#f1f5f9',
+          border: '#e2e8f0',
+          text: '#0f172a',
+          textSecondary: '#475569',
+          textMuted: '#64748b',
         },
       },
       fontFamily: {

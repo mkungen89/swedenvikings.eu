@@ -1,25 +1,35 @@
 import { useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Menu, X, Shield, User, Settings, LogOut, ChevronDown } from 'lucide-react';
+import { Menu, X, Shield, User, Settings, LogOut, ChevronDown, Mail, Users } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { cn } from '@/utils/cn';
-
-const navLinks = [
-  { href: '/', label: 'Hem' },
-  { href: '/news', label: 'Nyheter' },
-  { href: '/events', label: 'Events' },
-  { href: '/rules', label: 'Regler' },
-  { href: '/clans', label: 'Clans' },
-];
+import LanguageSwitcher from '@/components/common/LanguageSwitcher';
+import ThemeToggle from '@/components/common/ThemeToggle';
+import NotificationBell from '@/components/notifications/NotificationBell';
+import { useUnreadMessageCount } from '@/hooks/useMessages';
+import { useTranslation } from 'react-i18next';
 
 export default function Header() {
   const { user, isAuthenticated, login, logout, hasPermission } = useAuthStore();
+  const { t } = useTranslation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
+  const { data: unreadMessageCount = 0 } = useUnreadMessageCount();
+
+  const navLinks = [
+    { href: '/', label: t('nav.home') },
+    { href: '/news', label: t('nav.news') },
+    { href: '/events', label: t('nav.events') },
+    { href: '/forum', label: t('nav.forum', 'Forum') },
+    { href: '/leaderboards', label: t('nav.leaderboards') },
+    { href: '/rules', label: t('nav.rules') },
+    { href: '/clans', label: t('nav.clans') },
+  ];
+
   return (
-    <header className="sticky top-0 z-50 bg-background-darker/80 backdrop-blur-lg border-b border-white/5">
+    <header className="sticky top-0 z-50 bg-white/80 dark:bg-background-darker/80 backdrop-blur-lg border-b border-gray-200 dark:border-white/5 transition-colors duration-300">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
@@ -27,7 +37,7 @@ export default function Header() {
             <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center font-display font-bold text-white text-xl group-hover:scale-105 transition-transform">
               SV
             </div>
-            <span className="font-display font-semibold text-lg hidden sm:block">
+            <span className="font-display font-semibold text-lg hidden sm:block text-gray-900 dark:text-white">
               Sweden Vikings
             </span>
           </Link>
@@ -42,8 +52,8 @@ export default function Header() {
                   cn(
                     'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
                     isActive
-                      ? 'bg-primary-600/20 text-primary-400'
-                      : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                      ? 'bg-primary-600/20 text-primary-600 dark:text-primary-400'
+                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5 hover:text-gray-900 dark:hover:text-white'
                   )
                 }
               >
@@ -53,20 +63,45 @@ export default function Header() {
           </nav>
 
           {/* User Menu */}
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            {/* Theme Toggle */}
+            <ThemeToggle />
+
+            {/* Language Switcher */}
+            <LanguageSwitcher />
+
+            {/* Notifications & Messages for authenticated users */}
+            {isAuthenticated && user && (
+              <>
+                <NotificationBell />
+                <Link
+                  to="/messages"
+                  className="relative p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"
+                  title={t('messages.title', 'Meddelanden')}
+                >
+                  <Mail className="w-5 h-5" />
+                  {unreadMessageCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-5 h-5 flex items-center justify-center text-xs font-bold text-white bg-red-500 rounded-full">
+                      {unreadMessageCount > 9 ? '9+' : unreadMessageCount}
+                    </span>
+                  )}
+                </Link>
+              </>
+            )}
+
             {isAuthenticated && user ? (
               <div className="relative">
                 <button
                   onClick={() => setUserMenuOpen(!userMenuOpen)}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-white/5 transition-colors"
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
                 >
                   <img
                     src={user.avatar || '/default-avatar.png'}
                     alt={user.username}
                     className="w-8 h-8 rounded-full border-2 border-primary-500"
                   />
-                  <span className="hidden sm:block text-sm font-medium">{user.username}</span>
-                  <ChevronDown className="w-4 h-4 text-gray-400" />
+                  <span className="hidden sm:block text-sm font-medium text-gray-900 dark:text-white">{user.username}</span>
+                  <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-400" />
                 </button>
 
                 <AnimatePresence>
@@ -75,46 +110,54 @@ export default function Header() {
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: 10 }}
-                      className="absolute right-0 mt-2 w-56 bg-background-card rounded-xl border border-white/10 shadow-xl overflow-hidden"
+                      className="absolute right-0 mt-2 w-56 bg-white dark:bg-background-card rounded-xl border border-gray-200 dark:border-white/10 shadow-xl overflow-hidden"
                     >
-                      <div className="p-3 border-b border-white/5">
-                        <p className="font-medium">{user.username}</p>
-                        <p className="text-sm text-gray-400">{user.roles[0]?.name || 'Member'}</p>
+                      <div className="p-3 border-b border-gray-200 dark:border-white/5">
+                        <p className="font-medium text-gray-900 dark:text-white">{user.username}</p>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">{user.roles[0]?.name || 'Member'}</p>
                       </div>
                       <div className="p-2">
                         <Link
                           to={`/profile/${user.id}`}
                           onClick={() => setUserMenuOpen(false)}
-                          className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/5 transition-colors"
+                          className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 transition-colors text-gray-900 dark:text-white"
                         >
-                          <User className="w-4 h-4 text-gray-400" />
+                          <User className="w-4 h-4 text-gray-600 dark:text-gray-400" />
                           <span>Min Profil</span>
+                        </Link>
+                        <Link
+                          to="/friends"
+                          onClick={() => setUserMenuOpen(false)}
+                          className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 transition-colors text-gray-900 dark:text-white"
+                        >
+                          <Users className="w-4 h-4 text-gray-600 dark:text-gray-400" />
+                          <span>{t('friends.title', 'Vänner')}</span>
                         </Link>
                         <Link
                           to="/settings"
                           onClick={() => setUserMenuOpen(false)}
-                          className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/5 transition-colors"
+                          className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 transition-colors text-gray-900 dark:text-white"
                         >
-                          <Settings className="w-4 h-4 text-gray-400" />
+                          <Settings className="w-4 h-4 text-gray-600 dark:text-gray-400" />
                           <span>Inställningar</span>
                         </Link>
                         {hasPermission('admin.access') && (
                           <Link
                             to="/admin"
                             onClick={() => setUserMenuOpen(false)}
-                            className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/5 transition-colors text-primary-400"
+                            className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 transition-colors text-primary-600 dark:text-primary-400"
                           >
                             <Shield className="w-4 h-4" />
                             <span>Admin Panel</span>
                           </Link>
                         )}
-                        <hr className="my-2 border-white/5" />
+                        <hr className="my-2 border-gray-200 dark:border-white/5" />
                         <button
                           onClick={() => {
                             setUserMenuOpen(false);
                             logout();
                           }}
-                          className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-red-500/10 transition-colors text-red-400 w-full"
+                          className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-red-500/10 transition-colors text-red-500 dark:text-red-400 w-full"
                         >
                           <LogOut className="w-4 h-4" />
                           <span>Logga ut</span>
@@ -137,7 +180,7 @@ export default function Header() {
             {/* Mobile Menu Button */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="md:hidden p-2 rounded-lg hover:bg-white/5"
+              className="md:hidden p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 text-gray-900 dark:text-white"
             >
               {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </button>
@@ -152,7 +195,7 @@ export default function Header() {
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="md:hidden border-t border-white/5 bg-background-darker"
+            className="md:hidden border-t border-gray-200 dark:border-white/5 bg-gray-50 dark:bg-background-darker"
           >
             <nav className="p-4 space-y-2">
               {navLinks.map((link) => (
@@ -164,8 +207,8 @@ export default function Header() {
                     cn(
                       'block px-4 py-2 rounded-lg font-medium transition-colors',
                       isActive
-                        ? 'bg-primary-600/20 text-primary-400'
-                        : 'text-gray-300 hover:bg-white/5'
+                        ? 'bg-primary-600/20 text-primary-600 dark:text-primary-400'
+                        : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5'
                     )
                   }
                 >

@@ -29,6 +29,17 @@ async function startServer() {
     await gameServerManager.initialize();
     logger.info('✅ Game Server Manager initialized');
 
+    // Start scheduled services
+    logger.info('Initializing scheduled services...');
+    const { backupService } = await import('./services/backup.service');
+    const { optimizationService } = await import('./services/optimization.service');
+
+    await backupService.startScheduler();
+    logger.info('✅ Backup scheduler initialized');
+
+    await optimizationService.startScheduler();
+    logger.info('✅ Optimization scheduler initialized');
+
     // Start server
     httpServer.listen(PORT, () => {
       logger.info(`
@@ -46,6 +57,12 @@ async function startServer() {
     // Graceful shutdown
     const shutdown = async () => {
       logger.info('Shutting down server...');
+
+      // Stop schedulers
+      backupService.stopScheduler();
+      optimizationService.stopScheduler();
+      logger.info('✅ Schedulers stopped');
+
       await gameServerManager.shutdown();
       httpServer.close();
       await prisma.$disconnect();

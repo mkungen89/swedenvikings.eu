@@ -31,6 +31,7 @@ router.get('/me', isAuthenticated, async (req, res) => {
           },
         },
         socialLinks: true,
+        platformAccounts: true,
       },
     });
 
@@ -42,6 +43,7 @@ router.get('/me', isAuthenticated, async (req, res) => {
     const response = {
       id: user.id,
       steamId: user.steamId,
+      discordId: user.discordId,
       username: user.username,
       email: user.email,
       avatar: user.avatar,
@@ -64,6 +66,7 @@ router.get('/me', isAuthenticated, async (req, res) => {
         )
       )],
       socialLinks: user.socialLinks,
+      platformAccounts: user.platformAccounts,
     };
 
     sendSuccess(res, response);
@@ -72,12 +75,29 @@ router.get('/me', isAuthenticated, async (req, res) => {
   }
 });
 
-// Start Steam authentication
+// ============================================
+// Steam Authentication
+// ============================================
+
 router.get('/steam', authRateLimiter, passport.authenticate('steam'));
 
-// Steam callback
 router.get('/steam/callback',
   passport.authenticate('steam', {
+    failureRedirect: `${process.env.CLIENT_URL}/login?error=auth_failed`,
+  }),
+  (req, res) => {
+    res.redirect(`${process.env.CLIENT_URL}/auth/callback`);
+  }
+);
+
+// ============================================
+// Discord Authentication
+// ============================================
+
+router.get('/discord', authRateLimiter, passport.authenticate('discord'));
+
+router.get('/discord/callback',
+  passport.authenticate('discord', {
     failureRedirect: `${process.env.CLIENT_URL}/login?error=auth_failed`,
   }),
   (req, res) => {

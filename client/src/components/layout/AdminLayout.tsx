@@ -8,6 +8,7 @@ import {
   Newspaper,
   Calendar,
   Server,
+  Trophy,
   FileText,
   Settings,
   Ticket,
@@ -15,6 +16,7 @@ import {
   X,
   ArrowLeft,
   ChevronDown,
+  Crosshair,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { cn } from '@/utils/cn';
@@ -26,6 +28,8 @@ const sidebarLinks = [
   { href: '/admin/news', label: 'Nyheter', icon: Newspaper },
   { href: '/admin/events', label: 'Events', icon: Calendar },
   { href: '/admin/server', label: 'Server', icon: Server },
+  { href: '/admin/progression', label: 'Progression', icon: Trophy },
+  { href: '/admin/battlelog', label: 'Battlelog', icon: Crosshair },
   { href: '/admin/logs', label: 'Loggar', icon: FileText },
   { href: '/admin/tickets', label: 'Tickets', icon: Ticket },
   { href: '/admin/settings', label: 'Inställningar', icon: Settings },

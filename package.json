@@ -18,6 +18,7 @@
     "start": "npm run start --workspace=server",
     "db:generate": "npm run db:generate --workspace=server",
     "db:migrate": "npm run db:migrate --workspace=server",
+    "db:migrate:deploy": "cd server && npx prisma migrate deploy",
     "db:push": "npm run db:push --workspace=server",
     "db:studio": "npm run db:studio --workspace=server",
     "db:seed": "npm run db:seed --workspace=server",
@@ -26,10 +27,19 @@
     "docker:logs": "docker-compose logs -f",
     "docker:reset": "docker-compose down -v && docker-compose up -d",
     "setup": "npm install && npm run docker:up && timeout /t 10 && npm run db:push && npm run db:seed",
+    "pm2:start": "pm2 start ecosystem.config.js --env production",
+    "pm2:stop": "pm2 stop swedenvikings",
+    "pm2:restart": "pm2 restart swedenvikings",
+    "pm2:reload": "pm2 reload swedenvikings",
+    "pm2:logs": "pm2 logs swedenvikings",
+    "pm2:monit": "pm2 monit",
     "lint": "npm run lint --workspaces",
     "clean": "rimraf node_modules client/node_modules server/node_modules shared/node_modules"
   },
   "devDependencies": {
+    "@types/archiver": "^7.0.0",
+    "@types/node-cron": "^3.0.11",
+    "@types/nodemailer": "^7.0.4",
     "concurrently": "^8.2.2",
     "rimraf": "^5.0.5"
   },
@@ -37,6 +47,10 @@
     "node": ">=18.0.0"
   },
   "author": "Sweden Vikings",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "node-cron": "^4.2.1",
+    "nodemailer": "^7.0.12"
+  }
 }
-

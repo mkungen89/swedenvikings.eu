@@ -6,7 +6,7 @@ import { Router } from 'express';
 import { body, query, param } from 'express-validator';
 import { isAuthenticated, hasPermission } from '../middleware/auth';
 import { validate } from '../middleware/validate';
-import { sendSuccess, sendPaginated, errors } from '../utils/apiResponse';
+import { sendSuccess, sendPaginated, sendError, errors } from '../utils/apiResponse';
 import { prisma } from '../utils/prisma';
 import { cache } from '../utils/redis';
 import { gameServerManager, ServerConnection, fetchModData, searchMods, WorkshopModData } from '../services/gameServer';
@@ -232,6 +232,15 @@ router.post('/install', hasPermission('server.config'), async (req, res) => {
   try {
     const connectionId = req.query.connectionId as string | undefined;
     
+    // Verify a server connection exists
+    const managed = connectionId 
+      ? gameServerManager.getConnection(connectionId)
+      : gameServerManager.getDefaultConnection();
+    
+    if (!managed) {
+      return sendError(res, 'NO_CONNECTION', 'Ingen serveranslutning konfigurerad. Lägg till en serveranslutning först under fliken "Anslutningar".', 400);
+    }
+    
     await prisma.activityLog.create({
       data: {
         userId: req.user!.id,
@@ -241,18 +250,47 @@ router.post('/install', hasPermission('server.config'), async (req, res) => {
       },
     });
 
+    // Emit initial progress
+    gameServerManager.emit('install-progress', {
+      connectionId: managed.connection.id,
+      progress: {
+        status: 'downloading',
+        progress: 0,
+        message: 'Förbereder installation...',
+      }
+    });
+
     // Start installation in background
     gameServerManager.installServer(connectionId)
       .then(success => {
         logger.info(`Server installation ${success ? 'completed' : 'failed'}`);
+        if (!success) {
+          gameServerManager.emit('install-progress', {
+            connectionId: managed.connection.id,
+            progress: {
+              status: 'error',
+              progress: 0,
+              message: 'Installation misslyckades',
+            }
+          });
+        }
       })
       .catch(err => {
         logger.error('Server installation error:', err);
+        gameServerManager.emit('install-progress', {
+          connectionId: managed.connection.id,
+          progress: {
+            status: 'error',
+            progress: 0,
+            message: `Installation misslyckades: ${err.message}`,
+          }
+        });
       });
 
-    sendSuccess(res, { message: 'Server installation started' });
-  } catch (error) {
-    errors.serverError(res);
+    sendSuccess(res, { message: 'Server installation started', connectionId: managed.connection.id });
+  } catch (error: any) {
+    logger.error('Install error:', error);
+    errors.serverError(res, error.message);
   }
 });
 
@@ -260,6 +298,12 @@ router.post('/install', hasPermission('server.config'), async (req, res) => {
 router.post('/start', hasPermission('server.start'), async (req, res) => {
   try {
     const connectionId = req.query.connectionId as string | undefined;
+
+    // Check if server is installed first
+    const isInstalled = await gameServerManager.isServerInstalled(connectionId);
+    if (!isInstalled) {
+      return sendError(res, 'NOT_INSTALLED', 'Spelservern är inte installerad. Klicka på "Installera Server" först.', 400);
+    }
 
     await prisma.activityLog.create({
       data: {
@@ -275,7 +319,7 @@ router.post('/start', hasPermission('server.start'), async (req, res) => {
     if (success) {
       sendSuccess(res, { message: 'Server started successfully' });
     } else {
-      errors.serverError(res, 'Failed to start server');
+      errors.serverError(res, 'Kunde inte starta servern. Kontrollera att server-sökvägen är korrekt.');
     }
   } catch (error: any) {
     logger.error('Failed to start server:', error);
