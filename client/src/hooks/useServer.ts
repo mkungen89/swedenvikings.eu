@@ -352,7 +352,7 @@ export function useAddMod() {
   return useMutation({
     mutationFn: async (workshopId: string) => {
       const response = await api.post('/server/mods', { workshopId });
-      return response.data.data as Mod;
+      return response.data; // Return full response including dependenciesInstalled
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['server', 'mods'] });

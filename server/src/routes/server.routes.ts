@@ -539,7 +539,94 @@ router.get('/mods', hasPermission('server.mods'), async (req, res) => {
   }
 });
 
-// Add mod (fetches metadata from workshop automatically)
+// Helper function to recursively install mod dependencies
+async function installModWithDependencies(
+  workshopId: string,
+  userId: string,
+  connectionId?: string,
+  installedMods: Set<string> = new Set()
+): Promise<{ mod: any; dependenciesInstalled: string[] }> {
+  const dependenciesInstalled: string[] = [];
+
+  // Skip if already processed
+  if (installedMods.has(workshopId)) {
+    const existing = await prisma.mod.findUnique({ where: { workshopId } });
+    return { mod: existing, dependenciesInstalled };
+  }
+
+  installedMods.add(workshopId);
+
+  // Check if already installed in database
+  let existingMod = await prisma.mod.findUnique({
+    where: { workshopId },
+  });
+
+  if (existingMod) {
+    return { mod: existingMod, dependenciesInstalled };
+  }
+
+  // Fetch metadata from workshop
+  const workshopData = await fetchModData(workshopId);
+  if (!workshopData) {
+    throw new Error(`Could not find mod ${workshopId} in workshop`);
+  }
+
+  // Install dependencies first (they need to load before this mod)
+  if (workshopData.dependencies && workshopData.dependencies.length > 0) {
+    logger.info(`Installing ${workshopData.dependencies.length} dependencies for ${workshopData.name}`);
+    for (const depId of workshopData.dependencies) {
+      try {
+        const result = await installModWithDependencies(depId, userId, connectionId, installedMods);
+        if (result.mod) {
+          dependenciesInstalled.push(depId);
+        }
+      } catch (error) {
+        logger.warn(`Failed to install dependency ${depId}:`, error);
+      }
+    }
+  }
+
+  // Get max load order
+  const maxOrder = await prisma.mod.aggregate({
+    _max: { loadOrder: true },
+  });
+
+  // Create the mod
+  const mod = await prisma.mod.create({
+    data: {
+      workshopId,
+      name: workshopData.name,
+      description: workshopData.description,
+      author: workshopData.author,
+      imageUrl: workshopData.imageUrl,
+      version: workshopData.version,
+      gameVersion: workshopData.gameVersion,
+      size: BigInt(workshopData.size),
+      dependencies: workshopData.dependencies,
+      rating: workshopData.rating,
+      subscribers: workshopData.subscribers,
+      lastSyncedAt: new Date(),
+      loadOrder: (maxOrder._max.loadOrder || 0) + 1,
+    },
+  });
+
+  // Update server config with new mod
+  const config = await gameServerManager.getServerConfig(connectionId);
+  if (config) {
+    config.mods.push({
+      modId: workshopId,
+      name: workshopData.name,
+      version: workshopData.version,
+      enabled: true,
+      loadOrder: mod.loadOrder,
+    });
+    await gameServerManager.updateServerConfig({ mods: config.mods }, connectionId);
+  }
+
+  return { mod, dependenciesInstalled };
+}
+
+// Add mod (fetches metadata from workshop automatically and installs dependencies)
 router.post('/mods',
   hasPermission('server.mods'),
   body('workshopId').isString().trim(),
@@ -559,61 +646,38 @@ router.post('/mods',
         });
       }
 
-      // Fetch metadata from workshop
-      const workshopData = await fetchModData(workshopId);
-      if (!workshopData) {
-        return errors.validation(res, {
-          workshopId: ['Could not find mod in workshop'],
-        });
-      }
-
-      const maxOrder = await prisma.mod.aggregate({
-        _max: { loadOrder: true },
-      });
-
-      const mod = await prisma.mod.create({
-        data: {
-          workshopId,
-          name: workshopData.name,
-          description: workshopData.description,
-          author: workshopData.author,
-          imageUrl: workshopData.imageUrl,
-          version: workshopData.version,
-          gameVersion: workshopData.gameVersion,
-          size: BigInt(workshopData.size),
-          dependencies: workshopData.dependencies,
-          rating: workshopData.rating,
-          subscribers: workshopData.subscribers,
-          lastSyncedAt: new Date(),
-          loadOrder: (maxOrder._max.loadOrder || 0) + 1,
-        },
-      });
-
-      // Update server config with new mod
       const connectionId = req.query.connectionId as string | undefined;
-      const config = await gameServerManager.getServerConfig(connectionId);
-      if (config) {
-        config.mods.push({
-          modId: workshopId,
-          name: workshopData.name,
-          version: workshopData.version,
-          enabled: true,
-          loadOrder: mod.loadOrder,
-        });
-        await gameServerManager.updateServerConfig({ mods: config.mods }, connectionId);
-      }
+
+      // Install mod with all dependencies
+      const { mod, dependenciesInstalled } = await installModWithDependencies(
+        workshopId,
+        req.user!.id,
+        connectionId
+      );
 
       await prisma.activityLog.create({
         data: {
           userId: req.user!.id,
           action: 'server.mod.install',
           category: 'server',
-          details: { modId: mod.id, workshopId, name: workshopData.name },
+          details: {
+            modId: mod.id,
+            workshopId,
+            name: mod.name,
+            dependenciesInstalled,
+            dependenciesCount: dependenciesInstalled.length,
+          },
           ip: req.ip,
         },
       });
 
-      sendSuccess(res, serializeMod(mod), undefined, 201);
+      sendSuccess(res, {
+        mod: serializeMod(mod),
+        dependenciesInstalled,
+        message: dependenciesInstalled.length > 0
+          ? `Mod installed with ${dependenciesInstalled.length} dependencies`
+          : 'Mod installed',
+      }, undefined, 201);
     } catch (error) {
       logger.error('Failed to add mod:', error);
       errors.serverError(res);

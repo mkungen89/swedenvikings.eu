@@ -2375,8 +2375,17 @@ function AddModModal({ isOpen, onClose, onAdd }: AddModModalProps) {
 
     setAddingModId(mod.modId);
     try {
-      await onAdd.mutateAsync(mod.modId);
-      toast.success(`${mod.name} tillagd!`);
+      const response = await onAdd.mutateAsync(mod.modId);
+
+      // Check if dependencies were installed
+      if (response?.data?.dependenciesInstalled && response.data.dependenciesInstalled.length > 0) {
+        toast.success(
+          `${mod.name} tillagd med ${response.data.dependenciesInstalled.length} beroende mod(s)!`,
+          { duration: 5000 }
+        );
+      } else {
+        toast.success(`${mod.name} tillagd!`);
+      }
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Kunde inte lägga till mod');
     } finally {
