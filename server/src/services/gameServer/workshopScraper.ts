@@ -139,8 +139,10 @@ function parseModFromJson(asset: any): WorkshopModData | null {
     const dependencies: string[] = [];
     if (asset.dependencyTree?.dependencies) {
       for (const dep of asset.dependencyTree.dependencies) {
-        if (dep.assetId) {
-          dependencies.push(dep.assetId);
+        // Try different formats for dependency ID
+        const depId = dep.assetId || dep.asset?.id || dep.id;
+        if (depId) {
+          dependencies.push(depId);
         }
       }
     }
