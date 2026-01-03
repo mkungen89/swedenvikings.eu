@@ -43,6 +43,7 @@ export interface ServerConfig {
   name: string;
   password?: string;
   adminPassword?: string;
+  admins?: string[]; // Array of SteamID64
   maxPlayers: number;
   visible: boolean;
   crossPlatform?: boolean;
@@ -54,6 +55,7 @@ export interface ServerConfig {
   publicPort?: number;
   a2sQueryEnabled: boolean;
   steamQueryPort: number;
+  steamQueryAddress?: string;
   rconEnabled?: boolean;
   rconPort?: number;
   rconPassword?: string;
@@ -77,6 +79,15 @@ export interface ServerMod {
   version?: string;
   enabled: boolean;
   loadOrder: number;
+}
+
+export interface SteamProfile {
+  steamId: string;
+  personaName: string;
+  profileUrl: string;
+  avatar: string;
+  avatarMedium: string;
+  avatarFull: string;
 }
 
 export interface Mod {
@@ -521,6 +532,23 @@ export function useSendCommand() {
       const response = await api.post(`/server/command${params}`, { command });
       return response.data.data as { result: string };
     },
+  });
+}
+
+// ============================================
+// Steam Profile Lookup
+// ============================================
+
+export function useSteamProfile(steamId: string | null) {
+  return useQuery({
+    queryKey: ['steam', 'profile', steamId],
+    queryFn: async () => {
+      if (!steamId) return null;
+      const response = await api.get(`/server/steam-profile/${steamId}`);
+      return response.data.data as SteamProfile;
+    },
+    enabled: !!steamId && steamId.length === 17, // SteamID64 is 17 digits
+    retry: false,
   });
 }
 

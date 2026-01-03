@@ -80,7 +80,15 @@ export class GameServerQuery {
   }
 
   async getPlayers(): Promise<OnlinePlayer[]> {
+    // Try to get players from query first
     const result = await this.query();
+
+    // If we got players with data, return them
+    if (result.players.length > 0 && result.players.some(p => p.steamId)) {
+      return result.players;
+    }
+
+    // Otherwise return basic player list (names only from query)
     return result.players;
   }
 

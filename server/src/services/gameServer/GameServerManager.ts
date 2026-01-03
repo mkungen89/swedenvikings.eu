@@ -296,15 +296,31 @@ class GameServerManager extends EventEmitter {
   }
 
   async getOnlinePlayers(connectionId?: string): Promise<OnlinePlayer[]> {
-    const managed = connectionId 
-      ? this.servers.get(connectionId) 
+    const managed = connectionId
+      ? this.servers.get(connectionId)
       : this.getDefaultConnection();
 
     if (!managed) return [];
 
     try {
-      return await managed.query.getPlayers();
-    } catch {
+      // First, try to get players from query
+      const queryPlayers = await managed.query.getPlayers();
+
+      // If query returned players with SteamIDs, use those
+      if (queryPlayers.length > 0 && queryPlayers.some(p => p.steamId)) {
+        return queryPlayers;
+      }
+
+      // Otherwise, try to parse from log files (better for Arma Reforger)
+      const logPlayers = await managed.server.getPlayersFromLog();
+      if (logPlayers.length > 0) {
+        return logPlayers;
+      }
+
+      // Fallback to query players (even without SteamID)
+      return queryPlayers;
+    } catch (error) {
+      logger.error('Failed to get online players:', error);
       return [];
     }
   }

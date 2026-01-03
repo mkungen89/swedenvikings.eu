@@ -51,6 +51,7 @@ import {
   useUpdateServerConfig,
   useWorkshopSearch,
   useServerVersion,
+  useSteamProfile,
   formatUptime,
   ServerConnection,
   InstallProgress,
@@ -59,6 +60,47 @@ import {
   ServerLog,
   WorkshopMod,
 } from '@/hooks/useServer';
+
+// Admin SteamID Item Component
+function AdminSteamIdItem({ steamId, onRemove }: { steamId: string; onRemove: () => void }) {
+  const { data: profile, isLoading } = useSteamProfile(steamId);
+
+  return (
+    <div className="flex items-center gap-3 p-3 bg-background-darker rounded-lg border border-gray-700">
+      {isLoading ? (
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      ) : profile ? (
+        <>
+          <img src={profile.avatar} alt={profile.personaName} className="w-8 h-8 rounded" />
+          <div className="flex-1">
+            <p className="font-medium">{profile.personaName}</p>
+            <p className="text-xs text-gray-500">{steamId}</p>
+          </div>
+          <a
+            href={profile.profileUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:text-primary-light"
+          >
+            <ExternalLink className="w-4 h-4" />
+          </a>
+        </>
+      ) : (
+        <div className="flex-1">
+          <p className="font-medium text-gray-400">Steam-profil kunde inte hittas</p>
+          <p className="text-xs text-gray-500">{steamId}</p>
+        </div>
+      )}
+      <button
+        onClick={onRemove}
+        className="text-red-400 hover:text-red-300"
+        type="button"
+      >
+        <Trash2 className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
 
 export default function AdminServer() {
   const [activeTab, setActiveTab] = useState<'status' | 'settings' | 'mods' | 'connections' | 'console' | 'logs'>('status');
@@ -71,12 +113,14 @@ export default function AdminServer() {
   const [installProgress, setInstallProgress] = useState<InstallProgress | null>(null);
   const [consoleInput, setConsoleInput] = useState('');
   const [_socket, setSocket] = useState<Socket | null>(null); // Kept for cleanup reference
+  const [newAdminSteamId, setNewAdminSteamId] = useState('');
 
   // Server config state
   const [configForm, setConfigForm] = useState<ServerConfig>({
     name: 'Sweden Vikings Server',
     password: '',
     adminPassword: '',
+    admins: [],
     maxPlayers: 64,
     visible: true,
     crossPlatform: false,
@@ -88,6 +132,7 @@ export default function AdminServer() {
     publicPort: 2001,
     a2sQueryEnabled: true,
     steamQueryPort: 17777,
+    steamQueryAddress: '',
     rconEnabled: false,
     rconPort: 19999,
     rconPassword: '',
@@ -765,7 +810,7 @@ export default function AdminServer() {
                     <thead>
                       <tr className="border-b border-white/5">
                         <th className="text-left py-3 text-sm font-medium text-gray-400">Spelare</th>
-                        <th className="text-left py-3 text-sm font-medium text-gray-400">Steam ID</th>
+                        <th className="text-left py-3 text-sm font-medium text-gray-400">Player ID</th>
                         <th className="text-left py-3 text-sm font-medium text-gray-400">Anslöt</th>
                         <th className="text-left py-3 text-sm font-medium text-gray-400">Ping</th>
                         <th className="text-right py-3 text-sm font-medium text-gray-400">Åtgärder</th>
@@ -893,6 +938,79 @@ export default function AdminServer() {
                     />
                   </div>
 
+                  {/* Admin SteamIDs */}
+                  <div className="col-span-2">
+                    <label className="block text-sm text-gray-400 mb-2">Server Admins (SteamID64)</label>
+                    <div className="space-y-2">
+                      {configForm.admins && configForm.admins.length > 0 ? (
+                        configForm.admins.map((steamId, index) => (
+                          <AdminSteamIdItem
+                            key={index}
+                            steamId={steamId}
+                            onRemove={() => {
+                              const newAdmins = [...(configForm.admins || [])];
+                              newAdmins.splice(index, 1);
+                              setConfigForm({ ...configForm, admins: newAdmins });
+                            }}
+                          />
+                        ))
+                      ) : (
+                        <p className="text-sm text-gray-500 italic">Inga admins tillagda</p>
+                      )}
+
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={newAdminSteamId}
+                          onChange={(e) => setNewAdminSteamId(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && newAdminSteamId.trim()) {
+                              e.preventDefault();
+                              if (newAdminSteamId.length === 17 && /^\d+$/.test(newAdminSteamId)) {
+                                const admins = configForm.admins || [];
+                                if (!admins.includes(newAdminSteamId)) {
+                                  setConfigForm({ ...configForm, admins: [...admins, newAdminSteamId] });
+                                  setNewAdminSteamId('');
+                                } else {
+                                  toast.error('Denna SteamID finns redan som admin');
+                                }
+                              } else {
+                                toast.error('SteamID64 måste vara 17 siffror');
+                              }
+                            }
+                          }}
+                          placeholder="76561199176944069"
+                          className="input flex-1"
+                        />
+                        <button
+                          onClick={() => {
+                            if (newAdminSteamId.trim()) {
+                              if (newAdminSteamId.length === 17 && /^\d+$/.test(newAdminSteamId)) {
+                                const admins = configForm.admins || [];
+                                if (!admins.includes(newAdminSteamId)) {
+                                  setConfigForm({ ...configForm, admins: [...admins, newAdminSteamId] });
+                                  setNewAdminSteamId('');
+                                } else {
+                                  toast.error('Denna SteamID finns redan som admin');
+                                }
+                              } else {
+                                toast.error('SteamID64 måste vara 17 siffror');
+                              }
+                            }
+                          }}
+                          className="btn-secondary flex items-center gap-2"
+                          type="button"
+                        >
+                          <Plus className="w-4 h-4" />
+                          Lägg till Admin
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        SteamID64 är 17 siffror långt (t.ex. 76561199176944069)
+                      </p>
+                    </div>
+                  </div>
+
                   <div>
                     <label className="block text-sm text-gray-400 mb-1">Max Spelare</label>
                     <input
@@ -974,7 +1092,19 @@ export default function AdminServer() {
                   </div>
 
                   <div>
-                    <label className="block text-sm text-gray-400 mb-1">Steam Query Port (A2S)</label>
+                    <label className="block text-sm text-gray-400 mb-1">A2S Query Adress</label>
+                    <input
+                      type="text"
+                      value={configForm.steamQueryAddress || ''}
+                      onChange={(e) => setConfigForm({ ...configForm, steamQueryAddress: e.target.value })}
+                      placeholder="192.168.31.204"
+                      className="input w-full"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">IP-adress för Steam server query (A2S protokollet)</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">A2S Query Port</label>
                     <input
                       type="number"
                       value={configForm.steamQueryPort}
@@ -983,6 +1113,7 @@ export default function AdminServer() {
                       min={1}
                       max={65535}
                     />
+                    <p className="text-xs text-gray-500 mt-1">Port för Steam server query (standard: 17777)</p>
                   </div>
 
                   <div className="flex items-center gap-3">
@@ -1109,6 +1240,24 @@ export default function AdminServer() {
                           className="w-4 h-4 rounded border-gray-600 bg-background-darker text-primary focus:ring-primary"
                         />
                         <span className="text-sm">Xbox</span>
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={configForm.supportedPlatforms?.includes('PLATFORM_PSN')}
+                          onChange={(e) => {
+                            const platforms = [...(configForm.supportedPlatforms || [])];
+                            if (e.target.checked) {
+                              platforms.push('PLATFORM_PSN');
+                            } else {
+                              const idx = platforms.indexOf('PLATFORM_PSN');
+                              if (idx > -1) platforms.splice(idx, 1);
+                            }
+                            setConfigForm({ ...configForm, supportedPlatforms: platforms });
+                          }}
+                          className="w-4 h-4 rounded border-gray-600 bg-background-darker text-primary focus:ring-primary"
+                        />
+                        <span className="text-sm">PlayStation</span>
                       </label>
                     </div>
                   </div>

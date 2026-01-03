@@ -19,12 +19,14 @@ const DEFAULT_CONFIG: ServerConfig = {
   name: 'Sweden Vikings Server',
   password: '',
   adminPassword: '',
+  admins: [],
   bindAddress: '0.0.0.0',
   bindPort: 2001,
   publicAddress: '',
   publicPort: 2001,
   a2sQueryEnabled: true,
   steamQueryPort: 17777,
+  steamQueryAddress: '',
   rconEnabled: false,
   rconPort: 19999,
   rconPassword: '',
@@ -157,6 +159,111 @@ export class ArmaReforgerServer extends EventEmitter {
     }
   }
 
+  // Parse players from console log
+  async getPlayersFromLog(): Promise<OnlinePlayer[]> {
+    try {
+      const logPath = await this.getLatestConsoleLog();
+      if (!logPath) {
+        return [];
+      }
+
+      // Read last 1000 lines to find player connect/disconnect events
+      const command = this.platform === 'windows'
+        ? `powershell -Command "Get-Content '${logPath}' -Tail 1000"`
+        : `tail -1000 "${logPath}"`;
+
+      const result = await this.executor.exec(command);
+      if (!result.success || !result.output.trim()) {
+        return [];
+      }
+
+      // Track players by connectionID and their info
+      const connections = new Map<number, { name: string; identityId: string; playerId?: number }>();
+      const activeConnections = new Set<number>();
+      const lines = result.output.trim().split('\n');
+
+      for (const line of lines) {
+        // Arma Reforger actual log formats:
+        // Connect: "[NETWORK][NETWORK] Player connected: connectionID=0"
+        // Connecting: "[NETWORK][NETWORK] ### Connecting player: connectionID=0, Name="
+        // Update: "[NETWORK][NETWORK] ### Updating player: PlayerId=1, Name=ExiliM, rplIdentity=0x00000000, IdentityId=a3918e8f-6b89-440c-bebf-4f2a018af702"
+        // Disconnect: "[NETWORK][NETWORK] Player disconnected: connectionID=0"
+
+        // Match player connected
+        let match = line.match(/Player connected:\s*connectionID=(\d+)/i);
+        if (match) {
+          const connectionId = parseInt(match[1]);
+          activeConnections.add(connectionId);
+          continue;
+        }
+
+        // Match player disconnected
+        match = line.match(/Player disconnected:\s*connectionID=(\d+)/i);
+        if (match) {
+          const connectionId = parseInt(match[1]);
+          activeConnections.delete(connectionId);
+          connections.delete(connectionId);
+          continue;
+        }
+
+        // Match "Connecting player" with name
+        match = line.match(/###\s*Connecting player:\s*connectionID=(\d+),\s*Name=(.+?)(?:\s|$)/i);
+        if (match) {
+          const [, connectionId, name] = match;
+          const connId = parseInt(connectionId);
+          if (name && name.trim()) {
+            connections.set(connId, {
+              name: name.trim(),
+              identityId: '',
+            });
+          }
+          continue;
+        }
+
+        // Match "Updating player" with full details
+        match = line.match(/###\s*Updating player:\s*PlayerId=(\d+),\s*Name=([^,]+),.*?IdentityId=([a-f0-9-]+)/i);
+        if (match) {
+          const [, playerId, name, identityId] = match;
+          const playerIdNum = parseInt(playerId);
+
+          // Find connection for this player
+          // Usually PlayerId matches connectionID, or it's the most recent connection
+          let targetConnection = playerIdNum;
+          if (!activeConnections.has(targetConnection) && activeConnections.size > 0) {
+            targetConnection = Math.max(...Array.from(activeConnections));
+          }
+
+          if (activeConnections.has(targetConnection)) {
+            connections.set(targetConnection, {
+              name: name.trim(),
+              identityId: identityId.trim(),
+              playerId: playerIdNum,
+            });
+          }
+          continue;
+        }
+      }
+
+      // Convert to OnlinePlayer format
+      const players: OnlinePlayer[] = [];
+      for (const [connectionId, info] of connections.entries()) {
+        if (activeConnections.has(connectionId) && info.name) {
+          players.push({
+            name: info.name,
+            steamId: info.identityId || `conn_${connectionId}`,
+            joinedAt: new Date(),
+            ping: 0,
+          });
+        }
+      }
+
+      return players;
+    } catch (error) {
+      logger.error('Failed to get players from log:', error);
+      return [];
+    }
+  }
+
   async getAllLogDirs(): Promise<string[]> {
     try {
       const logsDir = this.getLogPath();
@@ -222,14 +329,14 @@ export class ArmaReforgerServer extends EventEmitter {
       publicAddress: this.config.publicAddress || '',
       publicPort: this.config.publicPort || this.config.bindPort || 2001,
       a2s: {
-        address: this.config.publicAddress || '',
+        address: this.config.steamQueryAddress || this.config.publicAddress || '',
         port: this.config.steamQueryPort || 17777,
       },
       game: {
         name: this.config.name,
         password: this.config.password || '',
         passwordAdmin: this.config.adminPassword || '',
-        admins: [],
+        admins: this.config.admins || [],
         scenarioId: this.config.scenarioId,
         maxPlayers: this.config.maxPlayers,
         visible: this.config.visible,
@@ -291,12 +398,14 @@ export class ArmaReforgerServer extends EventEmitter {
           name: json.game?.name || DEFAULT_CONFIG.name,
           password: json.game?.password || '',
           adminPassword: json.game?.passwordAdmin || '',
+          admins: json.game?.admins || [],
           bindAddress: json.bindAddress || DEFAULT_CONFIG.bindAddress,
           bindPort: json.bindPort || DEFAULT_CONFIG.bindPort,
           publicAddress: json.publicAddress || '',
           publicPort: json.publicPort || json.bindPort || DEFAULT_CONFIG.publicPort,
           a2sQueryEnabled: !!json.a2s,
           steamQueryPort: json.a2s?.port || DEFAULT_CONFIG.steamQueryPort,
+          steamQueryAddress: json.a2s?.address || '',
           rconEnabled: !!json.rcon,
           rconPort: json.rcon?.port || DEFAULT_CONFIG.rconPort,
           rconPassword: json.rcon?.password || '',

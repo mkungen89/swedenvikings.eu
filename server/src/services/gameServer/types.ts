@@ -30,7 +30,8 @@ export interface ServerConfig {
   name: string;
   password?: string;
   adminPassword?: string;
-  
+  admins?: string[]; // Array of SteamID64
+
   // Network
   bindAddress?: string;
   bindPort: number;
@@ -40,6 +41,7 @@ export interface ServerConfig {
   // A2S Query (Steam server browser)
   a2sQueryEnabled: boolean;
   steamQueryPort: number;
+  steamQueryAddress?: string;
   
   // RCON
   rconEnabled?: boolean;

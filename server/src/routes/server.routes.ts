@@ -11,6 +11,7 @@ import { prisma } from '../utils/prisma';
 import { cache } from '../utils/redis';
 import { gameServerManager, ServerConnection, fetchModData, searchMods, WorkshopModData } from '../services/gameServer';
 import { logger } from '../utils/logger';
+import axios from 'axios';
 
 const router = Router();
 
@@ -189,6 +190,59 @@ router.delete('/connections/:id',
 
       sendSuccess(res, { message: 'Connection deleted' });
     } catch (error) {
+      errors.serverError(res);
+    }
+  }
+);
+
+// ============================================
+// Steam Profile Lookup
+// ============================================
+
+// Get Steam profile by SteamID64
+router.get('/steam-profile/:steamId',
+  hasPermission('server.config'),
+  param('steamId').isString().isLength({ min: 17, max: 17 }),
+  validate,
+  async (req, res) => {
+    try {
+      const steamId = req.params.steamId;
+      const apiKey = process.env.STEAM_API_KEY;
+
+      if (!apiKey) {
+        return sendError(res, 'Steam API key not configured', 500);
+      }
+
+      // Check cache first (1 hour TTL)
+      const cacheKey = `steam:profile:${steamId}`;
+      const cached = await cache.get(cacheKey);
+      if (cached) {
+        return sendSuccess(res, JSON.parse(cached));
+      }
+
+      // Fetch from Steam API
+      const steamApiUrl = `https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key=${apiKey}&steamids=${steamId}`;
+      const response = await axios.get(steamApiUrl);
+
+      if (response.data?.response?.players?.length > 0) {
+        const player = response.data.response.players[0];
+        const profile = {
+          steamId: player.steamid,
+          personaName: player.personaname,
+          profileUrl: player.profileurl,
+          avatar: player.avatar,
+          avatarMedium: player.avatarmedium,
+          avatarFull: player.avatarfull,
+        };
+
+        // Cache for 1 hour
+        await cache.set(cacheKey, JSON.stringify(profile), 3600);
+        sendSuccess(res, profile);
+      } else {
+        sendError(res, 'Steam profile not found', 404);
+      }
+    } catch (error) {
+      logger.error('Steam profile lookup error:', error);
       errors.serverError(res);
     }
   }
