@@ -429,6 +429,40 @@ export function useSyncAllMods() {
   });
 }
 
+// Preview mod and dependencies before installing
+export interface ModDependency {
+  workshopId: string;
+  name: string;
+  version: string;
+  alreadyInstalled: boolean;
+}
+
+export interface ModPreview {
+  alreadyInstalled: boolean;
+  mod: {
+    workshopId: string;
+    name: string;
+    version: string;
+    description: string;
+    author: string;
+    size: number;
+    imageUrl: string;
+  };
+  dependencies: ModDependency[];
+  needsInstall: number;
+}
+
+export function usePreviewMod(workshopId: string) {
+  return useQuery({
+    queryKey: ['server', 'mods', 'preview', workshopId],
+    queryFn: async () => {
+      const response = await api.get(`/server/mods/preview/${workshopId}`);
+      return response.data.data as ModPreview;
+    },
+    enabled: !!workshopId && workshopId.length > 0,
+  });
+}
+
 // ============================================
 // Workshop Search
 // ============================================

@@ -50,6 +50,7 @@ import {
   useServerConfig,
   useUpdateServerConfig,
   useWorkshopSearch,
+  usePreviewMod,
   useServerVersion,
   useSteamProfile,
   formatUptime,
@@ -2350,11 +2351,169 @@ function InstallStep({ label, completed, active }: { label: string; completed: b
   );
 }
 
+// ============================================
+// Dependency Confirmation Dialog
+// ============================================
+
+interface DependencyConfirmationDialogProps {
+  workshopId: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function DependencyConfirmationDialog({ workshopId, onConfirm, onCancel }: DependencyConfirmationDialogProps) {
+  const { data: preview, isLoading } = usePreviewMod(workshopId);
+
+  if (isLoading || !preview) {
+    return (
+      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+        <div className="card p-6 w-full max-w-md">
+          <div className="text-center">
+            <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary mb-4" />
+            <p className="text-gray-400">Analyserar mod och dependencies...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // If already installed, show message
+  if (preview.alreadyInstalled) {
+    return (
+      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="card p-6 w-full max-w-md"
+        >
+          <div className="flex items-center gap-3 mb-4 text-yellow-400">
+            <AlertCircle className="w-6 h-6" />
+            <h2 className="text-xl font-bold">Redan installerad</h2>
+          </div>
+          <p className="text-gray-300 mb-6">
+            {preview.mod.name} är redan installerad på servern.
+          </p>
+          <button onClick={onCancel} className="btn-primary w-full">
+            OK
+          </button>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // If no dependencies, confirm immediately
+  if (preview.dependencies.length === 0) {
+    onConfirm();
+    return null;
+  }
+
+  // Show dependency confirmation
+  const newDeps = preview.dependencies.filter(d => !d.alreadyInstalled);
+  const alreadyInstalledDeps = preview.dependencies.filter(d => d.alreadyInstalled);
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="card p-6 w-full max-w-2xl max-h-[80vh] flex flex-col"
+      >
+        <div className="flex items-center gap-3 mb-4 text-yellow-400">
+          <AlertCircle className="w-6 h-6" />
+          <h2 className="text-xl font-bold">Dependencies krävs</h2>
+        </div>
+
+        <div className="flex-1 overflow-y-auto mb-6">
+          <div className="mb-4">
+            <h3 className="font-semibold mb-2">{preview.mod.name}</h3>
+            <p className="text-sm text-gray-400 mb-1">
+              Denna mod kräver {preview.dependencies.length} dependencies för att fungera korrekt.
+            </p>
+          </div>
+
+          {newDeps.length > 0 && (
+            <div className="mb-4">
+              <h4 className="font-medium text-green-400 mb-2">
+                Kommer att installeras ({newDeps.length} st):
+              </h4>
+              <div className="space-y-2">
+                {newDeps.map((dep) => (
+                  <div key={dep.workshopId} className="card p-3 bg-green-500/10 border border-green-500/20">
+                    <div className="flex items-start gap-2">
+                      <Download className="w-4 h-4 text-green-400 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="font-medium text-green-400">{dep.name}</p>
+                        <p className="text-xs text-gray-400">v{dep.version}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {alreadyInstalledDeps.length > 0 && (
+            <div>
+              <h4 className="font-medium text-gray-400 mb-2">
+                Redan installerade ({alreadyInstalledDeps.length} st):
+              </h4>
+              <div className="space-y-2">
+                {alreadyInstalledDeps.map((dep) => (
+                  <div key={dep.workshopId} className="card p-3 bg-background-darker">
+                    <div className="flex items-start gap-2">
+                      <CheckCircle className="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="font-medium text-gray-300">{dep.name}</p>
+                        <p className="text-xs text-gray-500">v{dep.version}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-gray-700 pt-4">
+          <p className="text-sm text-gray-400 mb-4">
+            {newDeps.length > 0 ? (
+              <>
+                Vill du installera <strong className="text-white">{preview.mod.name}</strong> tillsammans med{' '}
+                <strong className="text-green-400">{newDeps.length} nya dependencies</strong>?
+              </>
+            ) : (
+              <>
+                Alla dependencies är redan installerade. Vill du installera{' '}
+                <strong className="text-white">{preview.mod.name}</strong>?
+              </>
+            )}
+          </p>
+
+          <div className="flex gap-3">
+            <button onClick={onCancel} className="btn-secondary flex-1">
+              Avbryt
+            </button>
+            <button onClick={onConfirm} className="btn-primary flex-1">
+              <Download className="w-5 h-5" />
+              Installera alla
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+// ============================================
+// Add Mod Modal
+// ============================================
+
 function AddModModal({ isOpen, onClose, onAdd }: AddModModalProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [page, setPage] = useState(1);
   const [addingModId, setAddingModId] = useState<string | null>(null);
+  const [previewModId, setPreviewModId] = useState<string | null>(null);
 
   // Debounce search query
   useEffect(() => {
@@ -2373,18 +2532,25 @@ function AddModModal({ isOpen, onClose, onAdd }: AddModModalProps) {
       return;
     }
 
-    setAddingModId(mod.modId);
+    // First, check if mod has dependencies
+    setPreviewModId(mod.modId);
+  };
+
+  const handleConfirmAdd = async (workshopId: string) => {
+    setAddingModId(workshopId);
+    setPreviewModId(null);
+
     try {
-      const response = await onAdd.mutateAsync(mod.modId);
+      const response = await onAdd.mutateAsync(workshopId);
 
       // Check if dependencies were installed
       if (response?.data?.dependenciesInstalled && response.data.dependenciesInstalled.length > 0) {
         toast.success(
-          `${mod.name} tillagd med ${response.data.dependenciesInstalled.length} beroende mod(s)!`,
+          `Mod tillagd med ${response.data.dependenciesInstalled.length} beroende mod(s)!`,
           { duration: 5000 }
         );
       } else {
-        toast.success(`${mod.name} tillagd!`);
+        toast.success('Mod tillagd!');
       }
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Kunde inte lägga till mod');
@@ -2396,15 +2562,25 @@ function AddModModal({ isOpen, onClose, onAdd }: AddModModalProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="card p-6 w-full max-w-2xl max-h-[80vh] flex flex-col"
-      >
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold">Lägg till mod</h2>
+    <>
+      {/* Dependency Confirmation Dialog */}
+      {previewModId && (
+        <DependencyConfirmationDialog
+          workshopId={previewModId}
+          onConfirm={() => handleConfirmAdd(previewModId)}
+          onCancel={() => setPreviewModId(null)}
+        />
+      )}
+
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.95 }}
+          className="card p-6 w-full max-w-2xl max-h-[80vh] flex flex-col"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold">Lägg till mod</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-white">
             <Plus className="w-6 h-6 rotate-45" />
           </button>
@@ -2535,7 +2711,8 @@ function AddModModal({ isOpen, onClose, onAdd }: AddModModalProps) {
             </button>
           </div>
         )}
-      </motion.div>
-    </div>
+        </motion.div>
+      </div>
+    </>
   );
 }

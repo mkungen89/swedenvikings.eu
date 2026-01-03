@@ -556,6 +556,64 @@ router.get('/mods', hasPermission('server.mods'), async (req, res) => {
   }
 });
 
+// Preview mod info and dependencies (before installing)
+router.get('/mods/preview/:workshopId', hasPermission('server.mods'), async (req, res) => {
+  try {
+    const { workshopId } = req.params;
+
+    // Check if already installed
+    const existingMod = await prisma.mod.findUnique({ where: { workshopId } });
+    if (existingMod) {
+      return sendSuccess(res, {
+        alreadyInstalled: true,
+        mod: serializeMod(existingMod),
+      });
+    }
+
+    // Fetch from workshop
+    const workshopData = await fetchModData(workshopId);
+    if (!workshopData) {
+      return errors.notFound(res, 'Mod not found in workshop');
+    }
+
+    // Fetch dependency information
+    const dependencies = [];
+    if (workshopData.dependencies && workshopData.dependencies.length > 0) {
+      for (const depId of workshopData.dependencies) {
+        const depData = await fetchModData(depId);
+        if (depData) {
+          // Check if dependency is already installed
+          const installedDep = await prisma.mod.findUnique({ where: { workshopId: depId } });
+          dependencies.push({
+            workshopId: depId,
+            name: depData.name,
+            version: depData.version,
+            alreadyInstalled: !!installedDep,
+          });
+        }
+      }
+    }
+
+    sendSuccess(res, {
+      alreadyInstalled: false,
+      mod: {
+        workshopId: workshopData.modId,
+        name: workshopData.name,
+        version: workshopData.version,
+        description: workshopData.description,
+        author: workshopData.author,
+        size: workshopData.size,
+        imageUrl: workshopData.imageUrl,
+      },
+      dependencies,
+      needsInstall: dependencies.filter(d => !d.alreadyInstalled).length,
+    });
+  } catch (error) {
+    logger.error('Failed to preview mod:', error);
+    errors.serverError(res);
+  }
+});
+
 // Helper function to recursively install mod dependencies
 async function installModWithDependencies(
   workshopId: string,
