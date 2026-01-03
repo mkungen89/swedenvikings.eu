@@ -18,6 +18,21 @@ const router = Router();
 // All server routes require authentication
 router.use(isAuthenticated);
 
+// Helper function to get current mods from database
+async function getModsFromDatabase() {
+  const dbMods = await prisma.mod.findMany({
+    orderBy: { loadOrder: 'asc' },
+  });
+
+  return dbMods.map(m => ({
+    modId: m.workshopId,
+    name: m.name,
+    version: m.version || undefined,
+    enabled: m.enabled,
+    loadOrder: m.loadOrder,
+  }));
+}
+
 // ============================================
 // Server Connections Management
 // ============================================
@@ -444,8 +459,10 @@ router.get('/config', hasPermission('server.config'), async (req, res) => {
   try {
     const connectionId = req.query.connectionId as string | undefined;
     const config = await gameServerManager.getServerConfig(connectionId);
-    
+
     if (config) {
+      // Load mods from database and merge with config
+      config.mods = await getModsFromDatabase();
       sendSuccess(res, config);
     } else {
       // Return default config
@@ -610,18 +627,9 @@ async function installModWithDependencies(
     },
   });
 
-  // Update server config with new mod
-  const config = await gameServerManager.getServerConfig(connectionId);
-  if (config) {
-    config.mods.push({
-      modId: workshopId,
-      name: workshopData.name,
-      version: workshopData.version,
-      enabled: true,
-      loadOrder: mod.loadOrder,
-    });
-    await gameServerManager.updateServerConfig({ mods: config.mods }, connectionId);
-  }
+  // Update server config with all mods from database
+  const allMods = await getModsFromDatabase();
+  await gameServerManager.updateServerConfig({ mods: allMods }, connectionId);
 
   return { mod, dependenciesInstalled };
 }
@@ -698,21 +706,10 @@ router.patch('/mods/:id',
         data: req.body,
       });
 
-      // Update server config to reflect changes
+      // Update server config with all mods from database
       const connectionId = req.query.connectionId as string | undefined;
-      const config = await gameServerManager.getServerConfig(connectionId);
-      if (config) {
-        // Find and update the mod in config
-        const modIndex = config.mods.findIndex(m => m.modId === mod.workshopId);
-        if (modIndex !== -1) {
-          config.mods[modIndex] = {
-            ...config.mods[modIndex],
-            enabled: mod.enabled,
-            loadOrder: mod.loadOrder,
-          };
-          await gameServerManager.updateServerConfig({ mods: config.mods }, connectionId);
-        }
-      }
+      const allMods = await getModsFromDatabase();
+      await gameServerManager.updateServerConfig({ mods: allMods }, connectionId);
 
       sendSuccess(res, serializeMod(mod));
     } catch (error) {
@@ -733,19 +730,16 @@ router.delete('/mods/:id', hasPermission('server.mods'), async (req, res) => {
       return errors.notFound(res, 'Mod');
     }
 
-    // Remove from server config first
     const connectionId = req.query.connectionId as string | undefined;
-    const config = await gameServerManager.getServerConfig(connectionId);
-    if (config) {
-      // Filter out the mod being deleted
-      config.mods = config.mods.filter(m => m.modId !== mod.workshopId);
-      await gameServerManager.updateServerConfig({ mods: config.mods }, connectionId);
-    }
 
-    // Then delete from database
+    // Delete from database first
     await prisma.mod.delete({
       where: { id: req.params.id },
     });
+
+    // Then update server config with remaining mods from database
+    const allMods = await getModsFromDatabase();
+    await gameServerManager.updateServerConfig({ mods: allMods }, connectionId);
 
     await prisma.activityLog.create({
       data: {
@@ -783,24 +777,10 @@ router.post('/mods/reorder',
         )
       );
 
-      // Update server config with new mod order
+      // Update server config with new mod order from database
       const connectionId = req.query.connectionId as string | undefined;
-      const mods = await prisma.mod.findMany({
-        where: { enabled: true },
-        orderBy: { loadOrder: 'asc' },
-      });
-
-      const config = await gameServerManager.getServerConfig(connectionId);
-      if (config) {
-        config.mods = mods.map(m => ({
-          modId: m.workshopId,
-          name: m.name,
-          version: m.version || undefined,
-          enabled: m.enabled,
-          loadOrder: m.loadOrder,
-        }));
-        await gameServerManager.updateServerConfig({ mods: config.mods }, connectionId);
-      }
+      const allMods = await getModsFromDatabase();
+      await gameServerManager.updateServerConfig({ mods: allMods }, connectionId);
 
       sendSuccess(res, { message: 'Mod order updated' });
     } catch (error) {
