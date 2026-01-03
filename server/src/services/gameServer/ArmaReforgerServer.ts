@@ -368,13 +368,18 @@ export class ArmaReforgerServer extends EventEmitter {
     // Add RCON if enabled
     if (this.config.rconEnabled && this.config.rconPassword) {
       config.rcon = {
-        address: this.config.publicAddress || '0.0.0.0',
+        address: this.config.rconAddress || '',
         port: this.config.rconPort || 19999,
         password: this.config.rconPassword,
-        permission: 'admin',
-        blacklist: [],
-        whitelist: [],
+        permission: this.config.rconPermission || 'monitor',
+        blacklist: this.config.rconBlacklist || [],
+        whitelist: this.config.rconWhitelist || [],
       };
+
+      // Add maxClients if specified
+      if (this.config.rconMaxClients) {
+        config.rcon.maxClients = this.config.rconMaxClients;
+      }
     }
 
     return JSON.stringify(config, null, 2);
@@ -407,8 +412,13 @@ export class ArmaReforgerServer extends EventEmitter {
           steamQueryPort: json.a2s?.port || DEFAULT_CONFIG.steamQueryPort,
           steamQueryAddress: json.a2s?.address || '',
           rconEnabled: !!json.rcon,
+          rconAddress: json.rcon?.address || '',
           rconPort: json.rcon?.port || DEFAULT_CONFIG.rconPort,
           rconPassword: json.rcon?.password || '',
+          rconPermission: json.rcon?.permission || 'monitor',
+          rconMaxClients: json.rcon?.maxClients,
+          rconBlacklist: json.rcon?.blacklist || [],
+          rconWhitelist: json.rcon?.whitelist || [],
           scenarioId: json.game?.scenarioId || DEFAULT_CONFIG.scenarioId,
           maxPlayers: json.game?.maxPlayers || DEFAULT_CONFIG.maxPlayers,
           visible: json.game?.visible ?? DEFAULT_CONFIG.visible,

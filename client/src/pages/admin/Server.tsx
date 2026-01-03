@@ -134,8 +134,13 @@ export default function AdminServer() {
     steamQueryPort: 17777,
     steamQueryAddress: '',
     rconEnabled: false,
+    rconAddress: '',
     rconPort: 19999,
     rconPassword: '',
+    rconPermission: 'monitor',
+    rconMaxClients: 16,
+    rconBlacklist: [],
+    rconWhitelist: [],
     battlEye: true,
     disableThirdPerson: false,
     fastValidation: true,
@@ -1149,6 +1154,19 @@ export default function AdminServer() {
                   {configForm.rconEnabled && (
                     <>
                       <div>
+                        <label className="block text-sm text-gray-400 mb-1">
+                          RCON Adress
+                          <span className="text-xs text-gray-500 ml-2">(IP-adress som RCON binder till)</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={configForm.rconAddress || ''}
+                          onChange={(e) => setConfigForm({ ...configForm, rconAddress: e.target.value })}
+                          className="input w-full"
+                          placeholder="t.ex. 192.168.1.100 (lämna tomt för alla gränssnitt)"
+                        />
+                      </div>
+                      <div>
                         <label className="block text-sm text-gray-400 mb-1">RCON Port</label>
                         <input
                           type="number"
@@ -1160,13 +1178,69 @@ export default function AdminServer() {
                         />
                       </div>
                       <div>
-                        <label className="block text-sm text-gray-400 mb-1">RCON Lösenord</label>
+                        <label className="block text-sm text-gray-400 mb-1">
+                          RCON Lösenord
+                          <span className="text-xs text-red-400 ml-2">(minst 3 tecken, inga mellanslag)</span>
+                        </label>
                         <input
                           type="password"
                           value={configForm.rconPassword || ''}
                           onChange={(e) => setConfigForm({ ...configForm, rconPassword: e.target.value })}
                           className="input w-full"
                           placeholder="Ange RCON lösenord"
+                          minLength={3}
+                          pattern="[^\s]+"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-gray-400 mb-1">Behörighetsnivå</label>
+                        <select
+                          value={configForm.rconPermission || 'monitor'}
+                          onChange={(e) => setConfigForm({ ...configForm, rconPermission: e.target.value as 'admin' | 'monitor' })}
+                          className="input w-full"
+                        >
+                          <option value="monitor">Monitor (Endast läskommandon)</option>
+                          <option value="admin">Admin (Alla kommandon)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm text-gray-400 mb-1">
+                          Max antal klienter
+                          <span className="text-xs text-gray-500 ml-2">(1-16, standard: 16)</span>
+                        </label>
+                        <input
+                          type="number"
+                          value={configForm.rconMaxClients || 16}
+                          onChange={(e) => setConfigForm({ ...configForm, rconMaxClients: parseInt(e.target.value) || 16 })}
+                          className="input w-full"
+                          min={1}
+                          max={16}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-gray-400 mb-1">
+                          Blacklist
+                          <span className="text-xs text-gray-500 ml-2">(Kommandon som är förbjudna, separera med komma)</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={(configForm.rconBlacklist || []).join(', ')}
+                          onChange={(e) => setConfigForm({ ...configForm, rconBlacklist: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
+                          className="input w-full"
+                          placeholder="t.ex. shutdown, kick"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-gray-400 mb-1">
+                          Whitelist
+                          <span className="text-xs text-gray-500 ml-2">(Om angiven, endast dessa kommandon tillåts)</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={(configForm.rconWhitelist || []).join(', ')}
+                          onChange={(e) => setConfigForm({ ...configForm, rconWhitelist: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
+                          className="input w-full"
+                          placeholder="t.ex. status, players"
                         />
                       </div>
                     </>

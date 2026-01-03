@@ -57,8 +57,13 @@ export interface ServerConfig {
   steamQueryPort: number;
   steamQueryAddress?: string;
   rconEnabled?: boolean;
+  rconAddress?: string;
   rconPort?: number;
   rconPassword?: string;
+  rconPermission?: 'admin' | 'monitor';
+  rconMaxClients?: number;
+  rconBlacklist?: string[];
+  rconWhitelist?: string[];
   battlEye: boolean;
   disableThirdPerson: boolean;
   fastValidation: boolean;

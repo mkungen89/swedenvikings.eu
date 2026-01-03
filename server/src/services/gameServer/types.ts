@@ -45,8 +45,13 @@ export interface ServerConfig {
   
   // RCON
   rconEnabled?: boolean;
+  rconAddress?: string;
   rconPort?: number;
   rconPassword?: string;
+  rconPermission?: 'admin' | 'monitor';
+  rconMaxClients?: number;
+  rconBlacklist?: string[];
+  rconWhitelist?: string[];
   
   // Game Settings
   scenarioId: string;
