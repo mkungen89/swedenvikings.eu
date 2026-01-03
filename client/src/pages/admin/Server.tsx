@@ -2364,6 +2364,13 @@ interface DependencyConfirmationDialogProps {
 function DependencyConfirmationDialog({ workshopId, onConfirm, onCancel }: DependencyConfirmationDialogProps) {
   const { data: preview, isLoading } = usePreviewMod(workshopId);
 
+  // Auto-confirm if no dependencies (use effect to avoid state update during render)
+  useEffect(() => {
+    if (preview && !preview.alreadyInstalled && preview.dependencies.length === 0) {
+      onConfirm();
+    }
+  }, [preview, onConfirm]);
+
   if (isLoading || !preview) {
     return (
       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
@@ -2401,9 +2408,8 @@ function DependencyConfirmationDialog({ workshopId, onConfirm, onCancel }: Depen
     );
   }
 
-  // If no dependencies, confirm immediately
+  // If no dependencies, return null (useEffect will auto-confirm)
   if (preview.dependencies.length === 0) {
-    onConfirm();
     return null;
   }
 
