@@ -697,8 +697,26 @@ router.patch('/mods/:id',
         where: { id: req.params.id },
         data: req.body,
       });
+
+      // Update server config to reflect changes
+      const connectionId = req.query.connectionId as string | undefined;
+      const config = await gameServerManager.getServerConfig(connectionId);
+      if (config) {
+        // Find and update the mod in config
+        const modIndex = config.mods.findIndex(m => m.modId === mod.workshopId);
+        if (modIndex !== -1) {
+          config.mods[modIndex] = {
+            ...config.mods[modIndex],
+            enabled: mod.enabled,
+            loadOrder: mod.loadOrder,
+          };
+          await gameServerManager.updateServerConfig({ mods: config.mods }, connectionId);
+        }
+      }
+
       sendSuccess(res, serializeMod(mod));
     } catch (error) {
+      logger.error('Failed to update mod:', error);
       errors.serverError(res);
     }
   }
@@ -715,6 +733,16 @@ router.delete('/mods/:id', hasPermission('server.mods'), async (req, res) => {
       return errors.notFound(res, 'Mod');
     }
 
+    // Remove from server config first
+    const connectionId = req.query.connectionId as string | undefined;
+    const config = await gameServerManager.getServerConfig(connectionId);
+    if (config) {
+      // Filter out the mod being deleted
+      config.mods = config.mods.filter(m => m.modId !== mod.workshopId);
+      await gameServerManager.updateServerConfig({ mods: config.mods }, connectionId);
+    }
+
+    // Then delete from database
     await prisma.mod.delete({
       where: { id: req.params.id },
     });
@@ -724,13 +752,14 @@ router.delete('/mods/:id', hasPermission('server.mods'), async (req, res) => {
         userId: req.user!.id,
         action: 'server.mod.remove',
         category: 'server',
-        details: { modId: mod.id, name: mod.name },
+        details: { modId: mod.id, workshopId: mod.workshopId, name: mod.name },
         ip: req.ip,
       },
     });
 
     sendSuccess(res, { message: 'Mod removed' });
   } catch (error) {
+    logger.error('Failed to delete mod:', error);
     errors.serverError(res);
   }
 });
