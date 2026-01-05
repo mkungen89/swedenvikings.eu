@@ -522,8 +522,8 @@ export class ArmaReforgerServer extends EventEmitter {
         throw new Error(`Failed to start server: ${result.error}`);
       }
 
-      // Wait a bit and check if server started
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      // Wait briefly and check if server started
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
       if (await this.isRunning()) {
         this.status = 'online';
@@ -531,6 +531,14 @@ export class ArmaReforgerServer extends EventEmitter {
         logger.info(`Server started with PID: ${this.serverPid}`);
         return true;
       } else {
+        // Give it one more chance with a shorter wait
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        if (await this.isRunning()) {
+          this.status = 'online';
+          this.emit('status', this.status);
+          logger.info(`Server started with PID: ${this.serverPid}`);
+          return true;
+        }
         throw new Error('Server process did not start');
       }
     } catch (error: any) {
@@ -570,9 +578,9 @@ export class ArmaReforgerServer extends EventEmitter {
         }
       }
 
-      // Wait for process to stop
-      for (let i = 0; i < 10; i++) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+      // Wait for process to stop (faster checks)
+      for (let i = 0; i < 6; i++) {
+        await new Promise(resolve => setTimeout(resolve, 500));
         if (!(await this.isRunning())) {
           this.status = 'offline';
           this.emit('status', this.status);

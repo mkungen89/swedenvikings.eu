@@ -43,6 +43,7 @@ nul
 # IDE
 .vscode/
 .idea/
+.cursor/
 *.sublime-project
 *.sublime-workspace
 

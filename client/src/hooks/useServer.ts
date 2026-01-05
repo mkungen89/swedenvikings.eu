@@ -234,7 +234,7 @@ export function useServerStatus(connectionId?: string) {
       const response = await api.get(`/server/status${params}`);
       return response.data.data as ServerStatus;
     },
-    refetchInterval: 10000, // Refresh every 10 seconds
+    refetchInterval: 30000, // Refresh every 30 seconds (real-time updates via Socket.io)
   });
 }
 
@@ -519,7 +519,7 @@ export function useServerLogs(lines = 100, connectionId?: string) {
       const response = await api.get(`/server/logs?${params}`);
       return response.data.data as ServerLog[];
     },
-    refetchInterval: 3000, // Refresh every 3 seconds for real-time feel
+    refetchInterval: 30000, // Refresh every 30 seconds (real-time updates via Socket.io)
   });
 }
 
@@ -632,6 +632,207 @@ export function useScheduledTasks() {
     queryFn: async () => {
       const response = await api.get('/server/tasks');
       return response.data.data as ScheduledTask[];
+    },
+  });
+}
+
+// ============================================
+// Scenarios
+// ============================================
+
+export interface Scenario {
+  id: string;
+  scenarioId: string;
+  name: string;
+  description?: string | null;
+  modId?: string | null;
+  mod?: Mod | null;
+  isVanilla: boolean;
+  imageUrl?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GroupedScenarios {
+  vanilla: Scenario[];
+  mods: Array<{
+    mod: Mod | null;
+    scenarios: Scenario[];
+  }>;
+}
+
+export interface ScannedScenario {
+  scenarioId: string;
+  name: string;
+  modId: string | null;
+  modName: string | null;
+  isNew: boolean;
+}
+
+export interface ScanResult {
+  scenarios: ScannedScenario[];
+  total: number;
+  new: number;
+}
+
+export interface WorkshopScenario {
+  scenarioId: string;
+  name: string;
+  description?: string;
+  playerCount: number;
+  gameMode: string;
+  isNew: boolean;
+  existingId?: string | null;
+}
+
+export interface WorkshopScenarioResult {
+  scenarios: WorkshopScenario[];
+  modName: string;
+  modId?: string | null;
+  total: number;
+  new: number;
+}
+
+export interface FetchAllScenariosResult {
+  scenarios: Array<WorkshopScenario & {
+    modId: string;
+    modName: string;
+    modWorkshopId: string;
+  }>;
+  modsScanned: number;
+  total: number;
+  new: number;
+}
+
+export function useScenarios() {
+  return useQuery({
+    queryKey: ['server', 'scenarios'],
+    queryFn: async () => {
+      const response = await api.get('/server/scenarios');
+      return response.data.data as Scenario[];
+    },
+  });
+}
+
+export function useGroupedScenarios() {
+  return useQuery({
+    queryKey: ['server', 'scenarios', 'grouped'],
+    queryFn: async () => {
+      const response = await api.get('/server/scenarios/grouped');
+      return response.data.data as GroupedScenarios;
+    },
+  });
+}
+
+export function useAddScenario() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: {
+      scenarioId: string;
+      name: string;
+      description?: string;
+      modId?: string;
+      isVanilla?: boolean;
+      imageUrl?: string;
+    }) => {
+      const response = await api.post('/server/scenarios', data);
+      return response.data.data as Scenario;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['server', 'scenarios'] });
+    },
+  });
+}
+
+export function useUpdateScenario() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      id,
+      ...data
+    }: {
+      id: string;
+      name?: string;
+      description?: string | null;
+      modId?: string | null;
+      isVanilla?: boolean;
+      imageUrl?: string | null;
+    }) => {
+      const response = await api.patch(`/server/scenarios/${id}`, data);
+      return response.data.data as Scenario;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['server', 'scenarios'] });
+    },
+  });
+}
+
+export function useDeleteScenario() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/server/scenarios/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['server', 'scenarios'] });
+    },
+  });
+}
+
+export function useScanScenarios() {
+  return useMutation({
+    mutationFn: async (connectionId?: string) => {
+      const params = connectionId ? `?connectionId=${connectionId}` : '';
+      const response = await api.post(`/server/scenarios/scan${params}`);
+      return response.data.data as ScanResult;
+    },
+  });
+}
+
+export function useImportScenarios() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (
+      scenarios: Array<{
+        scenarioId: string;
+        name: string;
+        modId?: string | null;
+      }>
+    ) => {
+      const response = await api.post('/server/scenarios/import', { scenarios });
+      return response.data.data as { imported: number; skipped: number; message: string };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['server', 'scenarios'] });
+    },
+  });
+}
+
+export function useFetchWorkshopScenarios(workshopId: string) {
+  return useQuery({
+    queryKey: ['server', 'scenarios', 'workshop', workshopId],
+    queryFn: async () => {
+      const response = await api.get(`/server/scenarios/workshop/${workshopId}`);
+      return response.data.data as WorkshopScenarioResult;
+    },
+    enabled: !!workshopId && workshopId.length === 16,
+  });
+}
+
+export function useFetchAllWorkshopScenarios() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async () => {
+      const response = await api.post('/server/scenarios/fetch-all');
+      return response.data.data as FetchAllScenariosResult;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['server', 'scenarios'] });
     },
   });
 }

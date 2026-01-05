@@ -135,14 +135,19 @@ function parseModFromJson(asset: any): WorkshopModData | null {
       ? Math.round(asset.averageRating * 100)
       : 0;
 
-    // Parse dependencies from dependencyTree if available
+    // Parse dependencies - check both root level and dependencyTree
     const dependencies: string[] = [];
-    if (asset.dependencyTree?.dependencies) {
-      for (const dep of asset.dependencyTree.dependencies) {
-        // Try different formats for dependency ID
-        const depId = dep.assetId || dep.asset?.id || dep.id;
-        if (depId) {
-          dependencies.push(depId);
+    const depsArray = asset.dependencies || asset.dependencyTree?.dependencies || [];
+    if (Array.isArray(depsArray)) {
+      for (const dep of depsArray) {
+        // Handle different formats: string ID, object with assetId, or object with id
+        if (typeof dep === 'string') {
+          dependencies.push(dep);
+        } else {
+          const depId = dep.assetId || dep.asset?.id || dep.id;
+          if (depId) {
+            dependencies.push(depId);
+          }
         }
       }
     }
@@ -159,12 +164,13 @@ function parseModFromJson(asset: any): WorkshopModData | null {
       author = asset.author.username;
     }
 
-    // Get version and game version from dependencyTree or currentVersion fields
+    // Get version and game version - check multiple possible locations
     const version = asset.currentVersionNumber ||
                    asset.dependencyTree?.version ||
                    asset.currentVersion?.tag ||
                    '1.0.0';
-    const gameVersion = asset.dependencyTree?.gameVersion ||
+    const gameVersion = asset.gameVersion ||
+                       asset.dependencyTree?.gameVersion ||
                        asset.currentVersion?.gameVersionName ||
                        '';
     const size = asset.currentVersionSize ||
@@ -305,6 +311,133 @@ export async function searchMods(query: string, page = 1): Promise<WorkshopSearc
   } catch (error) {
     logger.error('Failed to search workshop', { query, page, error });
     return { mods: [], total: 0, page, totalPages: 0 };
+  }
+}
+
+// ============================================
+// Scenario Data
+// ============================================
+
+export interface WorkshopScenarioData {
+  scenarioId: string;    // Full scenario ID (e.g. "{C5EAD55037EB4751}Missions/RHS_CombatOps_MSV.conf")
+  name: string;
+  description?: string;
+  playerCount: number;
+  gameMode: string;      // Campaign, Sandbox, Game Master, etc.
+}
+
+// Parse scenario data from workshop JSON structure
+function parseScenarioFromJson(scenario: any): WorkshopScenarioData | null {
+  try {
+    // The scenario ID is stored in the 'gameId' field (mission configuration path)
+    // e.g., "{C5EAD55037EB4751}Missions/RHS_CombatOps_MSV.conf"
+    const scenarioId = scenario.gameId || scenario.id || scenario.scenarioId;
+    if (!scenarioId) {
+      logger.debug('Scenario missing gameId', { scenario });
+      return null;
+    }
+
+    // Clean up gameMode - remove localization keys like "#AR-ServerBrowser_ServerScenario"
+    let gameMode = scenario.gameMode || scenario.type || 'Unknown';
+    if (gameMode.startsWith('#AR-')) {
+      // Extract readable part from localization key
+      gameMode = gameMode.replace('#AR-', '').replace(/_/g, ' ');
+    }
+
+    return {
+      scenarioId,
+      name: scenario.name || 'Unknown',
+      description: scenario.summary || scenario.description || '',
+      playerCount: scenario.playerCount || scenario.maxPlayers || 0,
+      gameMode,
+    };
+  } catch (e) {
+    logger.error('Failed to parse scenario from JSON', { error: e, scenario });
+    return null;
+  }
+}
+
+// Fetch scenarios for a specific mod
+export async function fetchModScenarios(modId: string): Promise<WorkshopScenarioData[]> {
+  // Check cache first
+  const cacheKey = `workshop:scenarios:${modId}`;
+  const cached = await cache.get<WorkshopScenarioData[]>(cacheKey);
+  if (cached) {
+    logger.debug(`Workshop scenarios cache hit for mod ${modId}`);
+    return cached;
+  }
+
+  try {
+    // Fetch the mod's scenarios page using Next.js data endpoint
+    let buildId = await getWorkshopBuildId();
+    let url = `${WORKSHOP_API_BASE}/_next/data/${buildId}/workshop/${modId}/scenarios.json`;
+    logger.info(`Fetching mod scenarios from ${url}`);
+
+    let response = await fetch(url, {
+      headers: {
+        'User-Agent': 'SwedenVikings-CMS/1.0',
+        'Accept': 'application/json',
+      },
+    });
+
+    // If 404, the build ID might be stale - try to refresh it
+    if (response.status === 404) {
+      logger.debug(`Got 404 for scenarios, refreshing build ID for mod: ${modId}`);
+      // Clear cached build ID and try again
+      await cache.del('workshop:buildId');
+      buildId = await getWorkshopBuildId();
+      url = `${WORKSHOP_API_BASE}/_next/data/${buildId}/workshop/${modId}/scenarios.json`;
+      logger.info(`Retrying with new build ID: ${url}`);
+
+      response = await fetch(url, {
+        headers: {
+          'User-Agent': 'SwedenVikings-CMS/1.0',
+          'Accept': 'application/json',
+        },
+      });
+
+      if (response.status === 404) {
+        // Still 404 - mod might just not have scenarios
+        logger.debug(`No scenarios tab for mod: ${modId}`);
+        return [];
+      }
+    }
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const jsonData = await response.json();
+
+    // Look for scenarios in pageProps.asset.scenarios (correct path from Next.js data endpoint)
+    const scenarios = jsonData?.pageProps?.asset?.scenarios ||
+                     jsonData?.pageProps?.assetVersionDetail?.scenarios ||
+                     jsonData?.pageProps?.scenarios ||
+                     [];
+
+    if (!Array.isArray(scenarios) || scenarios.length === 0) {
+      logger.debug(`No scenarios array found for mod ${modId}`, {
+        hasPageProps: !!jsonData?.pageProps,
+        hasAsset: !!jsonData?.pageProps?.asset,
+        scenarioCount: scenarios?.length
+      });
+      return [];
+    }
+
+    logger.debug(`Found ${scenarios.length} raw scenarios for mod ${modId}`);
+
+    const parsedScenarios: WorkshopScenarioData[] = scenarios
+      .map((s: any) => parseScenarioFromJson(s))
+      .filter((s: WorkshopScenarioData | null): s is WorkshopScenarioData => s !== null);
+
+    // Cache the result
+    await cache.set(cacheKey, parsedScenarios, CACHE_TTL_MOD);
+
+    logger.info(`Found ${parsedScenarios.length} scenarios for mod ${modId}`);
+    return parsedScenarios;
+  } catch (error) {
+    logger.error('Failed to fetch mod scenarios', { modId, error });
+    return [];
   }
 }
 

@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { io, Socket } from 'socket.io-client';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   DndContext,
   closestCenter,
@@ -53,13 +54,25 @@ import {
   usePreviewMod,
   useServerVersion,
   useSteamProfile,
+  useGroupedScenarios,
+  useScenarios,
+  useAddScenario,
+  useUpdateScenario,
+  useDeleteScenario,
+  useScanScenarios,
+  useImportScenarios,
+  useFetchAllWorkshopScenarios,
   formatUptime,
   ServerConnection,
+  ServerStatus,
   InstallProgress,
   Mod,
   ServerConfig,
   ServerLog,
   WorkshopMod,
+  Scenario,
+  ScannedScenario,
+  FetchAllScenariosResult,
 } from '@/hooks/useServer';
 
 // Admin SteamID Item Component
@@ -103,8 +116,790 @@ function AdminSteamIdItem({ steamId, onRemove }: { steamId: string; onRemove: ()
   );
 }
 
+// Scenario Dropdown Component with grouped options
+function ScenarioDropdown({
+  value,
+  onChange
+}: {
+  value: string;
+  onChange: (scenarioId: string) => void;
+}) {
+  const { data: groupedScenarios, isLoading } = useGroupedScenarios();
+  const [isOpen, setIsOpen] = useState(false);
+  const [manualInput, setManualInput] = useState(false);
+
+  // Find current scenario name
+  const findScenarioName = (): string => {
+    if (!groupedScenarios) return value;
+
+    // Check vanilla scenarios
+    const vanilla = groupedScenarios.vanilla.find(s => s.scenarioId === value);
+    if (vanilla) return vanilla.name;
+
+    // Check mod scenarios
+    for (const modGroup of groupedScenarios.mods) {
+      const found = modGroup.scenarios.find(s => s.scenarioId === value);
+      if (found) return `${found.name} (${modGroup.mod?.name || 'Okänd mod'})`;
+    }
+
+    return value;
+  };
+
+  if (isLoading) {
+    return (
+      <div className="input w-full flex items-center gap-2 text-gray-400">
+        <Loader2 className="w-4 h-4 animate-spin" />
+        Laddar scenarios...
+      </div>
+    );
+  }
+
+  const hasScenarios = groupedScenarios && (
+    groupedScenarios.vanilla.length > 0 ||
+    groupedScenarios.mods.some(m => m.scenarios.length > 0)
+  );
+
+  // Manual input mode
+  if (manualInput) {
+    return (
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="input flex-1"
+          placeholder="{ECC61978EDCC2B5A}Missions/23_Campaign.conf"
+        />
+        <button
+          type="button"
+          onClick={() => setManualInput(false)}
+          className="btn btn-secondary px-3"
+        >
+          Lista
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="input w-full text-left flex items-center justify-between"
+      >
+        <span className={value ? 'text-white' : 'text-gray-400'}>
+          {value ? findScenarioName() : 'Välj scenario...'}
+        </span>
+        <ChevronLeft className={`w-4 h-4 text-gray-400 transition-transform ${isOpen ? '-rotate-90' : ''}`} />
+      </button>
+
+      {isOpen && (
+        <div className="absolute z-50 mt-1 w-full bg-background-card border border-gray-700 rounded-lg shadow-xl max-h-80 overflow-y-auto">
+          {!hasScenarios ? (
+            <div className="p-4 text-center text-gray-400">
+              <p>Inga scenarios hittades.</p>
+              <p className="text-sm mt-2">Lägg till scenarios under fliken "Scenarios"</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setManualInput(true);
+                  setIsOpen(false);
+                }}
+                className="text-primary hover:text-primary-light mt-2 text-sm"
+              >
+                Eller skriv in manuellt
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* Vanilla Scenarios */}
+              {groupedScenarios.vanilla.length > 0 && (
+                <div>
+                  <div className="px-3 py-2 bg-background-darker text-sm font-semibold text-primary flex items-center gap-2">
+                    <Package className="w-4 h-4" />
+                    Vanilla (Base Game)
+                  </div>
+                  {groupedScenarios.vanilla.map((scenario) => (
+                    <button
+                      key={scenario.id}
+                      type="button"
+                      onClick={() => {
+                        onChange(scenario.scenarioId);
+                        setIsOpen(false);
+                      }}
+                      className={`w-full px-4 py-2 text-left hover:bg-background-darker transition-colors ${
+                        value === scenario.scenarioId ? 'bg-primary/20 text-primary' : ''
+                      }`}
+                    >
+                      <span className="block">{scenario.name}</span>
+                      {scenario.description && (
+                        <span className="text-xs text-gray-500 block">{scenario.description}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Mod Scenarios */}
+              {groupedScenarios.mods.map((modGroup, idx) => (
+                modGroup.scenarios.length > 0 && (
+                  <div key={modGroup.mod?.id || `orphaned-${idx}`}>
+                    <div className="px-3 py-2 bg-background-darker text-sm font-semibold text-accent flex items-center gap-2">
+                      <Package className="w-4 h-4" />
+                      {modGroup.mod?.name || 'Okänd mod (borttagen)'}
+                    </div>
+                    {modGroup.scenarios.map((scenario) => (
+                      <button
+                        key={scenario.id}
+                        type="button"
+                        onClick={() => {
+                          onChange(scenario.scenarioId);
+                          setIsOpen(false);
+                        }}
+                        className={`w-full px-4 py-2 text-left hover:bg-background-darker transition-colors ${
+                          value === scenario.scenarioId ? 'bg-primary/20 text-primary' : ''
+                        }`}
+                      >
+                        <span className="block">{scenario.name}</span>
+                        {scenario.description && (
+                          <span className="text-xs text-gray-500 block">{scenario.description}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )
+              ))}
+
+              {/* Manual Input Option */}
+              <div className="border-t border-gray-700">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setManualInput(true);
+                    setIsOpen(false);
+                  }}
+                  className="w-full px-4 py-2 text-left text-sm text-gray-400 hover:bg-background-darker transition-colors"
+                >
+                  Skriv in scenario ID manuellt...
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Scenarios Tab Component
+function ScenariosTab({ selectedConnection }: { selectedConnection?: string }) {
+  const { data: scenarios = [], isLoading: scenariosLoading, refetch: refetchScenarios } = useScenarios();
+  const { data: mods = [] } = useServerMods();
+  const scanScenarios = useScanScenarios();
+  const fetchAllWorkshopScenarios = useFetchAllWorkshopScenarios();
+  const importScenarios = useImportScenarios();
+  const addScenario = useAddScenario();
+  const updateScenario = useUpdateScenario();
+  const deleteScenario = useDeleteScenario();
+
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showScanResults, setShowScanResults] = useState(false);
+  const [scanResults, setScanResults] = useState<ScannedScenario[]>([]);
+  const [workshopResults, setWorkshopResults] = useState<FetchAllScenariosResult | null>(null);
+  const [selectedForImport, setSelectedForImport] = useState<Set<string>>(new Set());
+  const [editingScenario, setEditingScenario] = useState<Scenario | null>(null);
+
+  // Add scenario form state
+  const [newScenario, setNewScenario] = useState({
+    scenarioId: '',
+    name: '',
+    description: '',
+    modId: '',
+    isVanilla: true,
+    imageUrl: '',
+  });
+
+  // Fetch scenarios from Workshop (recommended)
+  const handleFetchFromWorkshop = async () => {
+    try {
+      const result = await fetchAllWorkshopScenarios.mutateAsync();
+      setWorkshopResults(result);
+      setSelectedForImport(new Set(result.scenarios.filter(s => s.isNew).map(s => s.scenarioId)));
+      setShowScanResults(true);
+      toast.success(`Hittade ${result.total} scenarios från ${result.modsScanned} mods (${result.new} nya)`);
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Kunde inte hämta scenarios från Workshop');
+    }
+  };
+
+  // Legacy: Scan local server files
+  const handleScan = async () => {
+    try {
+      const result = await scanScenarios.mutateAsync(selectedConnection);
+      setScanResults(result.scenarios);
+      setWorkshopResults(null);
+      setSelectedForImport(new Set(result.scenarios.filter(s => s.isNew).map(s => s.scenarioId)));
+      setShowScanResults(true);
+      toast.success(`Hittade ${result.total} scenarios (${result.new} nya)`);
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Skanningen misslyckades');
+    }
+  };
+
+  const handleImport = async () => {
+    // Use workshop results if available, otherwise use scan results
+    const sourceScenarios = workshopResults?.scenarios || scanResults;
+    const toImport = sourceScenarios
+      .filter(s => selectedForImport.has(s.scenarioId))
+      .map(s => ({
+        scenarioId: s.scenarioId,
+        name: s.name,
+        modId: 'modId' in s ? s.modId : null,
+      }));
+
+    if (toImport.length === 0) {
+      toast.error('Inga scenarios valda för import');
+      return;
+    }
+
+    try {
+      const result = await importScenarios.mutateAsync(toImport);
+      toast.success(result.message);
+      setShowScanResults(false);
+      setWorkshopResults(null);
+      refetchScenarios();
+    } catch (error: any) {
+      toast.error('Importen misslyckades');
+    }
+  };
+
+  const handleAddScenario = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await addScenario.mutateAsync({
+        scenarioId: newScenario.scenarioId,
+        name: newScenario.name,
+        description: newScenario.description || undefined,
+        modId: newScenario.modId || undefined,
+        isVanilla: newScenario.isVanilla,
+        imageUrl: newScenario.imageUrl || undefined,
+      });
+      toast.success('Scenario tillagt');
+      setShowAddModal(false);
+      setNewScenario({ scenarioId: '', name: '', description: '', modId: '', isVanilla: true, imageUrl: '' });
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Kunde inte lägga till scenario');
+    }
+  };
+
+  const handleDeleteScenario = async (scenario: Scenario) => {
+    if (!confirm(`Vill du ta bort scenariot "${scenario.name}"?`)) return;
+    try {
+      await deleteScenario.mutateAsync(scenario.id);
+      toast.success('Scenario borttaget');
+    } catch (error) {
+      toast.error('Kunde inte ta bort scenario');
+    }
+  };
+
+  const handleUpdateScenario = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingScenario) return;
+
+    try {
+      await updateScenario.mutateAsync({
+        id: editingScenario.id,
+        name: editingScenario.name,
+        description: editingScenario.description,
+        modId: editingScenario.modId,
+        isVanilla: editingScenario.isVanilla,
+        imageUrl: editingScenario.imageUrl,
+      });
+      toast.success('Scenario uppdaterat');
+      setEditingScenario(null);
+    } catch (error) {
+      toast.error('Kunde inte uppdatera scenario');
+    }
+  };
+
+  // Group scenarios by mod
+  const vanillaScenarios = scenarios.filter(s => s.isVanilla);
+  const modScenarios = scenarios.filter(s => !s.isVanilla);
+  const scenariosByMod = new Map<string, Scenario[]>();
+  for (const scenario of modScenarios) {
+    const modId = scenario.modId || 'orphaned';
+    if (!scenariosByMod.has(modId)) {
+      scenariosByMod.set(modId, []);
+    }
+    scenariosByMod.get(modId)!.push(scenario);
+  }
+
+  return (
+    <motion.div
+      key="scenarios"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      className="space-y-6"
+    >
+      <div className="flex justify-between items-center">
+        <p className="text-gray-400">
+          Hantera scenarios för servern. Scenarios används för att välja spelläge vid serverstart.
+        </p>
+        <div className="flex gap-2">
+          <button
+            onClick={handleFetchFromWorkshop}
+            disabled={fetchAllWorkshopScenarios.isPending}
+            className="btn btn-secondary"
+            title="Hämtar scenarios direkt från Arma Reforger Workshop"
+          >
+            {fetchAllWorkshopScenarios.isPending ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <Download className="w-5 h-5" />
+            )}
+            Hämta från Workshop
+          </button>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="btn-primary"
+          >
+            <Plus className="w-5 h-5" />
+            Lägg till scenario
+          </button>
+        </div>
+      </div>
+
+      {/* Scan/Fetch Results Modal */}
+      {showScanResults && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-background-card rounded-lg p-6 max-w-3xl w-full mx-4 max-h-[80vh] overflow-y-auto">
+            <h3 className="text-xl font-semibold mb-4">
+              {workshopResults ? 'Workshop Scenarios' : 'Skanningsresultat'}
+            </h3>
+            <p className="text-gray-400 mb-4">
+              {workshopResults
+                ? `Hittade ${workshopResults.total} scenarios från ${workshopResults.modsScanned} mods. Välj vilka du vill importera:`
+                : `Hittade ${scanResults.length} scenarios. Välj vilka du vill importera:`
+              }
+            </p>
+
+            <div className="space-y-2 mb-6">
+              {(workshopResults?.scenarios || scanResults).map((scenario) => (
+                <label
+                  key={scenario.scenarioId}
+                  className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
+                    selectedForImport.has(scenario.scenarioId)
+                      ? 'bg-primary/20 border border-primary/50'
+                      : 'bg-background-darker border border-gray-700'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedForImport.has(scenario.scenarioId)}
+                    onChange={(e) => {
+                      const newSet = new Set(selectedForImport);
+                      if (e.target.checked) {
+                        newSet.add(scenario.scenarioId);
+                      } else {
+                        newSet.delete(scenario.scenarioId);
+                      }
+                      setSelectedForImport(newSet);
+                    }}
+                    disabled={!scenario.isNew}
+                    className="w-4 h-4 rounded border-gray-600 bg-background-darker text-primary focus:ring-primary"
+                  />
+                  <div className="flex-1">
+                    <p className="font-medium">{scenario.name}</p>
+                    <p className="text-xs text-gray-500">
+                      {'modName' in scenario ? scenario.modName : (scenario as ScannedScenario).modName || 'Vanilla'}
+                      {' • '}
+                      {'gameMode' in scenario && (scenario as any).gameMode !== 'Unknown' && (
+                        <span className="text-primary">{(scenario as any).gameMode}</span>
+                      )}
+                      {'playerCount' in scenario && (scenario as any).playerCount > 0 && (
+                        <span className="ml-2">
+                          <Users className="w-3 h-3 inline mr-1" />
+                          {(scenario as any).playerCount}
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-xs text-gray-600 truncate">{scenario.scenarioId}</p>
+                  </div>
+                  {!scenario.isNew && (
+                    <span className="text-xs text-gray-400 bg-background px-2 py-1 rounded">
+                      Redan importerad
+                    </span>
+                  )}
+                </label>
+              ))}
+            </div>
+
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowScanResults(false);
+                  setWorkshopResults(null);
+                }}
+                className="btn btn-secondary"
+              >
+                Avbryt
+              </button>
+              <button
+                onClick={handleImport}
+                disabled={selectedForImport.size === 0 || importScenarios.isPending}
+                className="btn-primary"
+              >
+                {importScenarios.isPending ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <>Importera ({selectedForImport.size})</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Scenario Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-background-card rounded-lg p-6 max-w-lg w-full mx-4">
+            <h3 className="text-xl font-semibold mb-4">Lägg till scenario</h3>
+            <form onSubmit={handleAddScenario} className="space-y-4">
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Scenario ID *</label>
+                <input
+                  type="text"
+                  value={newScenario.scenarioId}
+                  onChange={(e) => setNewScenario({ ...newScenario, scenarioId: e.target.value })}
+                  className="input w-full"
+                  placeholder="{ECC61978EDCC2B5A}Missions/23_Campaign.conf"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Namn *</label>
+                <input
+                  type="text"
+                  value={newScenario.name}
+                  onChange={(e) => setNewScenario({ ...newScenario, name: e.target.value })}
+                  className="input w-full"
+                  placeholder="Campaign"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Beskrivning</label>
+                <textarea
+                  value={newScenario.description}
+                  onChange={(e) => setNewScenario({ ...newScenario, description: e.target.value })}
+                  className="input w-full"
+                  rows={2}
+                  placeholder="Valfri beskrivning..."
+                />
+              </div>
+              <div>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={newScenario.isVanilla}
+                    onChange={(e) => setNewScenario({ ...newScenario, isVanilla: e.target.checked, modId: '' })}
+                    className="w-4 h-4 rounded border-gray-600 bg-background-darker text-primary focus:ring-primary"
+                  />
+                  <span className="text-sm">Vanilla (Base Game)</span>
+                </label>
+              </div>
+              {!newScenario.isVanilla && (
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Tillhörande mod</label>
+                  <select
+                    value={newScenario.modId}
+                    onChange={(e) => setNewScenario({ ...newScenario, modId: e.target.value })}
+                    className="input w-full"
+                  >
+                    <option value="">Välj mod...</option>
+                    {mods.map((mod) => (
+                      <option key={mod.id} value={mod.id}>{mod.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Bild-URL</label>
+                <input
+                  type="text"
+                  value={newScenario.imageUrl}
+                  onChange={(e) => setNewScenario({ ...newScenario, imageUrl: e.target.value })}
+                  className="input w-full"
+                  placeholder="https://..."
+                />
+              </div>
+              <div className="flex gap-3 justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="btn btn-secondary"
+                >
+                  Avbryt
+                </button>
+                <button
+                  type="submit"
+                  disabled={addScenario.isPending}
+                  className="btn-primary"
+                >
+                  {addScenario.isPending ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    'Lägg till'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Scenario Modal */}
+      {editingScenario && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-background-card rounded-lg p-6 max-w-lg w-full mx-4">
+            <h3 className="text-xl font-semibold mb-4">Redigera scenario</h3>
+            <form onSubmit={handleUpdateScenario} className="space-y-4">
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Scenario ID</label>
+                <input
+                  type="text"
+                  value={editingScenario.scenarioId}
+                  disabled
+                  className="input w-full bg-background-darker text-gray-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Namn *</label>
+                <input
+                  type="text"
+                  value={editingScenario.name}
+                  onChange={(e) => setEditingScenario({ ...editingScenario, name: e.target.value })}
+                  className="input w-full"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Beskrivning</label>
+                <textarea
+                  value={editingScenario.description || ''}
+                  onChange={(e) => setEditingScenario({ ...editingScenario, description: e.target.value })}
+                  className="input w-full"
+                  rows={2}
+                />
+              </div>
+              <div>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={editingScenario.isVanilla}
+                    onChange={(e) => setEditingScenario({ ...editingScenario, isVanilla: e.target.checked, modId: e.target.checked ? null : editingScenario.modId })}
+                    className="w-4 h-4 rounded border-gray-600 bg-background-darker text-primary focus:ring-primary"
+                  />
+                  <span className="text-sm">Vanilla (Base Game)</span>
+                </label>
+              </div>
+              {!editingScenario.isVanilla && (
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Tillhörande mod</label>
+                  <select
+                    value={editingScenario.modId || ''}
+                    onChange={(e) => setEditingScenario({ ...editingScenario, modId: e.target.value || null })}
+                    className="input w-full"
+                  >
+                    <option value="">Välj mod...</option>
+                    {mods.map((mod) => (
+                      <option key={mod.id} value={mod.id}>{mod.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Bild-URL</label>
+                <input
+                  type="text"
+                  value={editingScenario.imageUrl || ''}
+                  onChange={(e) => setEditingScenario({ ...editingScenario, imageUrl: e.target.value || null })}
+                  className="input w-full"
+                  placeholder="https://..."
+                />
+              </div>
+              <div className="flex gap-3 justify-end">
+                <button
+                  type="button"
+                  onClick={() => setEditingScenario(null)}
+                  className="btn btn-secondary"
+                >
+                  Avbryt
+                </button>
+                <button
+                  type="submit"
+                  disabled={updateScenario.isPending}
+                  className="btn-primary"
+                >
+                  {updateScenario.isPending ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    'Spara'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Scenarios List */}
+      {scenariosLoading ? (
+        <div className="card p-8 text-center">
+          <Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" />
+          <p className="text-gray-400 mt-2">Laddar scenarios...</p>
+        </div>
+      ) : scenarios.length === 0 ? (
+        <div className="card p-8 text-center">
+          <Globe className="w-12 h-12 mx-auto text-gray-500 mb-4" />
+          <h3 className="text-lg font-semibold mb-2">Inga scenarios</h3>
+          <p className="text-gray-400 mb-4">
+            Hämta scenarios från Workshop eller lägg till manuellt.
+          </p>
+          <div className="flex gap-3 justify-center">
+            <button
+              onClick={handleFetchFromWorkshop}
+              disabled={fetchAllWorkshopScenarios.isPending}
+              className="btn btn-secondary"
+            >
+              {fetchAllWorkshopScenarios.isPending ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <Download className="w-5 h-5" />
+              )}
+              Hämta från Workshop
+            </button>
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="btn-primary"
+            >
+              <Plus className="w-5 h-5" />
+              Lägg till scenario
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {/* Vanilla Scenarios */}
+          {vanillaScenarios.length > 0 && (
+            <div className="card p-4">
+              <h3 className="font-semibold mb-3 flex items-center gap-2 text-primary">
+                <Package className="w-5 h-5" />
+                Vanilla (Base Game)
+                <span className="text-xs text-gray-400">({vanillaScenarios.length})</span>
+              </h3>
+              <div className="space-y-2">
+                {vanillaScenarios.map((scenario) => (
+                  <div
+                    key={scenario.id}
+                    className="flex items-center gap-3 p-3 bg-background-darker rounded-lg border border-gray-700"
+                  >
+                    {scenario.imageUrl && (
+                      <img
+                        src={scenario.imageUrl}
+                        alt={scenario.name}
+                        className="w-12 h-12 rounded object-cover"
+                      />
+                    )}
+                    <div className="flex-1">
+                      <p className="font-medium">{scenario.name}</p>
+                      <p className="text-xs text-gray-500 truncate">{scenario.scenarioId}</p>
+                      {scenario.description && (
+                        <p className="text-xs text-gray-400 mt-1">{scenario.description}</p>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setEditingScenario(scenario)}
+                        className="text-gray-400 hover:text-white transition-colors"
+                      >
+                        <Settings className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteScenario(scenario)}
+                        className="text-red-400 hover:text-red-300 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Mod Scenarios */}
+          {Array.from(scenariosByMod.entries()).map(([modId, modScenariosList]) => {
+            const mod = mods.find(m => m.id === modId);
+            return (
+              <div key={modId} className="card p-4">
+                <h3 className="font-semibold mb-3 flex items-center gap-2 text-accent">
+                  <Package className="w-5 h-5" />
+                  {mod?.name || 'Okänd mod (borttagen)'}
+                  <span className="text-xs text-gray-400">({modScenariosList.length})</span>
+                </h3>
+                <div className="space-y-2">
+                  {modScenariosList.map((scenario) => (
+                    <div
+                      key={scenario.id}
+                      className="flex items-center gap-3 p-3 bg-background-darker rounded-lg border border-gray-700"
+                    >
+                      {scenario.imageUrl && (
+                        <img
+                          src={scenario.imageUrl}
+                          alt={scenario.name}
+                          className="w-12 h-12 rounded object-cover"
+                        />
+                      )}
+                      <div className="flex-1">
+                        <p className="font-medium">{scenario.name}</p>
+                        <p className="text-xs text-gray-500 truncate">{scenario.scenarioId}</p>
+                        {scenario.description && (
+                          <p className="text-xs text-gray-400 mt-1">{scenario.description}</p>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setEditingScenario(scenario)}
+                          className="text-gray-400 hover:text-white transition-colors"
+                        >
+                          <Settings className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteScenario(scenario)}
+                          className="text-red-400 hover:text-red-300 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
 export default function AdminServer() {
-  const [activeTab, setActiveTab] = useState<'status' | 'settings' | 'mods' | 'connections' | 'console' | 'logs'>('status');
+  const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState<'status' | 'settings' | 'mods' | 'scenarios' | 'connections' | 'console' | 'logs'>('status');
   const [selectedLogDir, setSelectedLogDir] = useState<string>('');
   const [selectedLogFile, setSelectedLogFile] = useState<string>('');
   const [autoScroll, setAutoScroll] = useState(true);
@@ -157,7 +952,7 @@ export default function AdminServer() {
   });
 
   // Queries
-  const { data: serverStatus, refetch: refetchStatus } = useServerStatus(selectedConnection);
+  const { data: serverStatus } = useServerStatus(selectedConnection);
   const { data: connections = [], isLoading: connectionsLoading } = useServerConnections();
   const { data: players = [] } = useOnlinePlayers(selectedConnection);
   const { data: consoleLogs = [], refetch: refetchLogs } = useServerLogs(200, selectedConnection);
@@ -255,16 +1050,33 @@ export default function AdminServer() {
       newSocket.emit('join:server');
     });
 
-    newSocket.on('server:status', () => {
-      refetchStatus();
+    // Update cache directly with socket data instead of refetching
+    newSocket.on('server:status', (statusData: ServerStatus & { connectionId?: string }) => {
+      const connId = statusData.connectionId || selectedConnection;
+      // Merge with existing data to preserve fields like isInstalled
+      queryClient.setQueryData(['server', 'status', connId], (oldData: ServerStatus | undefined) => {
+        if (!oldData) return statusData;
+        return { ...oldData, ...statusData };
+      });
     });
 
     newSocket.on('server:install-progress', (progress: InstallProgress) => {
       setInstallProgress(progress);
       if (progress.status === 'complete' || progress.status === 'error') {
         setTimeout(() => setInstallProgress(null), 5000);
-        refetchStatus();
+        // Invalidate to get fresh data after install completes
+        queryClient.invalidateQueries({ queryKey: ['server', 'status'] });
       }
+    });
+
+    // Handle player updates via socket
+    newSocket.on('server:player', () => {
+      queryClient.invalidateQueries({ queryKey: ['server', 'players'] });
+    });
+
+    // Handle log updates via socket
+    newSocket.on('server:log', () => {
+      queryClient.invalidateQueries({ queryKey: ['server', 'logs'] });
     });
 
     setSocket(newSocket);
@@ -273,7 +1085,7 @@ export default function AdminServer() {
       newSocket.emit('leave:server');
       newSocket.disconnect();
     };
-  }, []);
+  }, [queryClient, selectedConnection]);
 
   // Set default connection
   useEffect(() => {
@@ -475,6 +1287,17 @@ export default function AdminServer() {
         >
           <Package className="w-4 h-4 inline mr-2" />
           Mods ({mods.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('scenarios')}
+          className={`px-4 py-2 rounded-lg transition-colors whitespace-nowrap ${
+            activeTab === 'scenarios'
+              ? 'bg-primary text-white'
+              : 'text-gray-400 hover:text-white hover:bg-white/5'
+          }`}
+        >
+          <Globe className="w-4 h-4 inline mr-2" />
+          Scenarios
         </button>
         <button
           onClick={() => setActiveTab('connections')}
@@ -1030,15 +1853,12 @@ export default function AdminServer() {
                   </div>
 
                   <div>
-                    <label className="block text-sm text-gray-400 mb-1">Scenario ID</label>
-                    <input
-                      type="text"
+                    <label className="block text-sm text-gray-400 mb-1">Scenario</label>
+                    <ScenarioDropdown
                       value={configForm.scenarioId}
-                      onChange={(e) => setConfigForm({ ...configForm, scenarioId: e.target.value })}
-                      className="input w-full"
-                      placeholder="{ECC61978EDCC2B5A}Missions/23_Campaign.conf"
+                      onChange={(scenarioId) => setConfigForm({ ...configForm, scenarioId })}
                     />
-                    <p className="text-xs text-gray-500 mt-1">Hitta scenario ID i spelets Mission Editor</p>
+                    <p className="text-xs text-gray-500 mt-1">Välj ett scenario från listan, eller hantera scenarios under fliken Scenarios</p>
                   </div>
                 </div>
 
@@ -1578,6 +2398,10 @@ export default function AdminServer() {
           </motion.div>
         )}
 
+        {activeTab === 'scenarios' && (
+          <ScenariosTab selectedConnection={selectedConnection} />
+        )}
+
         {activeTab === 'connections' && (
           <motion.div
             key="connections"
@@ -1587,7 +2411,7 @@ export default function AdminServer() {
             className="space-y-6"
           >
             <div className="flex justify-end">
-              <button 
+              <button
                 onClick={() => setShowAddConnection(true)}
                 className="btn-primary"
               >

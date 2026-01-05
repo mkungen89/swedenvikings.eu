@@ -389,8 +389,26 @@ model Mod {
   installedAt  DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  scenarios    Scenario[]
+
   @@index([enabled])
   @@index([loadOrder])
+}
+
+model Scenario {
+  id          String   @id @default(uuid())
+  scenarioId  String   @unique  // "{ECC61978EDCC2B5A}Missions/23_Campaign.conf"
+  name        String
+  description String?
+  modId       String?             // null = vanilla/base game
+  mod         Mod?     @relation(fields: [modId], references: [id], onDelete: SetNull)
+  isVanilla   Boolean  @default(false)
+  imageUrl    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([modId])
+  @@index([isVanilla])
 }
 
 model ServerLog {

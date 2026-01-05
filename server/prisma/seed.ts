@@ -261,6 +261,30 @@ async function main() {
   await seedMedals();
   await seedAchievements();
 
+  // Seed vanilla scenarios
+  const vanillaScenarios = [
+    { scenarioId: '{ECC61978EDCC2B5A}Missions/23_Campaign.conf', name: 'Campaign', description: 'Official Campaign scenario' },
+    { scenarioId: '{59AD59368755F41A}Missions/21_GM_Eden.conf', name: 'Game Master - Eden', description: 'Game Master mode on Eden map' },
+    { scenarioId: '{90F086877C27B6F6}Missions/17_Conflict.conf', name: 'Conflict - Everon', description: 'Conflict mode on Everon map' },
+    { scenarioId: '{ECC61978EDCC2B5A}Missions/20_Conflict_Arland.conf', name: 'Conflict - Arland', description: 'Conflict mode on Arland map' },
+    { scenarioId: '{59AD59368755F41A}Missions/21_GM_Arland.conf', name: 'Game Master - Arland', description: 'Game Master mode on Arland map' },
+    { scenarioId: '{90F086877C27B6F6}Missions/17_Combat_Ops.conf', name: 'Combat Operations', description: 'Combat Operations scenario' },
+  ];
+
+  for (const scenario of vanillaScenarios) {
+    await prisma.scenario.upsert({
+      where: { scenarioId: scenario.scenarioId },
+      update: { name: scenario.name, description: scenario.description },
+      create: {
+        scenarioId: scenario.scenarioId,
+        name: scenario.name,
+        description: scenario.description,
+        isVanilla: true,
+      },
+    });
+  }
+  console.log('✅ Vanilla scenarios created');
+
   console.log('');
   console.log('🎉 Database seed completed successfully!');
   console.log('');
@@ -272,6 +296,9 @@ async function main() {
   console.log('Game progression:');
   console.log('  - 43 Medals created');
   console.log('  - 48 Achievements created');
+  console.log('');
+  console.log('Server management:');
+  console.log(`  - ${vanillaScenarios.length} Vanilla scenarios created`);
 }
 
 main()

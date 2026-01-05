@@ -9,7 +9,7 @@ import { validate } from '../middleware/validate';
 import { sendSuccess, sendPaginated, sendError, errors } from '../utils/apiResponse';
 import { prisma } from '../utils/prisma';
 import { cache } from '../utils/redis';
-import { gameServerManager, ServerConnection, fetchModData, searchMods, WorkshopModData } from '../services/gameServer';
+import { gameServerManager, ServerConnection, fetchModData, searchMods, fetchModScenarios, WorkshopModData, WorkshopScenarioData } from '../services/gameServer';
 import { logger } from '../utils/logger';
 import axios from 'axios';
 
@@ -383,13 +383,14 @@ router.post('/start', hasPermission('server.start'), async (req, res) => {
       },
     });
 
-    const success = await gameServerManager.startServer(connectionId);
-    
-    if (success) {
-      sendSuccess(res, { message: 'Server started successfully' });
-    } else {
-      errors.serverError(res, 'Kunde inte starta servern. Kontrollera att server-sökvägen är korrekt.');
-    }
+    // Start server asynchronously - don't wait for completion
+    // Status updates will be pushed via Socket.io
+    gameServerManager.startServer(connectionId).catch((error) => {
+      logger.error('Failed to start server:', error);
+    });
+
+    // Return immediately - UI will update via socket
+    sendSuccess(res, { message: 'Server startar...', status: 'starting' });
   } catch (error: any) {
     logger.error('Failed to start server:', error);
     errors.serverError(res, error.message);
@@ -410,13 +411,14 @@ router.post('/stop', hasPermission('server.stop'), async (req, res) => {
       },
     });
 
-    const success = await gameServerManager.stopServer(connectionId);
-    
-    if (success) {
-      sendSuccess(res, { message: 'Server stopped successfully' });
-    } else {
-      errors.serverError(res, 'Failed to stop server');
-    }
+    // Stop server asynchronously - don't wait for completion
+    // Status updates will be pushed via Socket.io
+    gameServerManager.stopServer(connectionId).catch((error) => {
+      logger.error('Failed to stop server:', error);
+    });
+
+    // Return immediately - UI will update via socket
+    sendSuccess(res, { message: 'Server stoppar...', status: 'stopping' });
   } catch (error: any) {
     logger.error('Failed to stop server:', error);
     errors.serverError(res, error.message);
@@ -437,13 +439,14 @@ router.post('/restart', hasPermission('server.restart'), async (req, res) => {
       },
     });
 
-    const success = await gameServerManager.restartServer(connectionId);
-    
-    if (success) {
-      sendSuccess(res, { message: 'Server restarted successfully' });
-    } else {
-      errors.serverError(res, 'Failed to restart server');
-    }
+    // Restart server asynchronously - don't wait for completion
+    // Status updates will be pushed via Socket.io
+    gameServerManager.restartServer(connectionId).catch((error) => {
+      logger.error('Failed to restart server:', error);
+    });
+
+    // Return immediately - UI will update via socket
+    sendSuccess(res, { message: 'Server startar om...', status: 'restarting' });
   } catch (error: any) {
     logger.error('Failed to restart server:', error);
     errors.serverError(res, error.message);
@@ -671,15 +674,15 @@ async function installModWithDependencies(
     data: {
       workshopId,
       name: workshopData.name,
-      description: workshopData.description,
+      description: workshopData.description || '',
       author: workshopData.author,
-      imageUrl: workshopData.imageUrl,
+      imageUrl: workshopData.imageUrl || '',
       version: workshopData.version,
-      gameVersion: workshopData.gameVersion,
-      size: BigInt(workshopData.size),
-      dependencies: workshopData.dependencies,
-      rating: workshopData.rating,
-      subscribers: workshopData.subscribers,
+      gameVersion: workshopData.gameVersion || '',
+      size: BigInt(workshopData.size || 0),
+      dependencies: workshopData.dependencies || [],
+      rating: workshopData.rating || 0,
+      subscribers: workshopData.subscribers || 0,
       lastSyncedAt: new Date(),
       loadOrder: (maxOrder._max.loadOrder || 0) + 1,
     },
@@ -744,9 +747,13 @@ router.post('/mods',
           ? `Mod installed with ${dependenciesInstalled.length} dependencies`
           : 'Mod installed',
       }, undefined, 201);
-    } catch (error) {
-      logger.error('Failed to add mod:', error);
-      errors.serverError(res);
+    } catch (error: any) {
+      logger.error('Failed to add mod:', {
+        error: error.message,
+        stack: error.stack,
+        workshopId: req.body.workshopId
+      });
+      errors.serverError(res, error.message);
     }
   }
 );
@@ -1181,6 +1188,480 @@ router.post('/command',
       sendSuccess(res, { result });
     } catch (error: any) {
       errors.serverError(res, error.message);
+    }
+  }
+);
+
+// ============================================
+// Scenarios Management
+// ============================================
+
+// Helper to serialize scenario
+const serializeScenario = (scenario: any) => ({
+  ...scenario,
+  mod: scenario.mod ? serializeMod(scenario.mod) : null,
+});
+
+// Get all scenarios (grouped by mod)
+router.get('/scenarios', hasPermission('server.config'), async (req, res) => {
+  try {
+    const scenarios = await prisma.scenario.findMany({
+      include: { mod: true },
+      orderBy: [{ isVanilla: 'desc' }, { name: 'asc' }],
+    });
+    sendSuccess(res, scenarios.map(serializeScenario));
+  } catch (error) {
+    logger.error('Failed to get scenarios:', error);
+    errors.serverError(res);
+  }
+});
+
+// Get scenarios grouped by mod (for dropdown)
+router.get('/scenarios/grouped', hasPermission('server.config'), async (req, res) => {
+  try {
+    const scenarios = await prisma.scenario.findMany({
+      include: { mod: true },
+      orderBy: [{ isVanilla: 'desc' }, { name: 'asc' }],
+    });
+
+    // Group by mod
+    const vanillaScenarios = scenarios.filter(s => s.isVanilla);
+    const modScenarios = scenarios.filter(s => !s.isVanilla);
+
+    // Group mod scenarios by modId
+    const modGroups = new Map<string, { mod: any; scenarios: any[] }>();
+    for (const scenario of modScenarios) {
+      const modId = scenario.modId || 'orphaned';
+      if (!modGroups.has(modId)) {
+        modGroups.set(modId, {
+          mod: scenario.mod ? serializeMod(scenario.mod) : null,
+          scenarios: [],
+        });
+      }
+      modGroups.get(modId)!.scenarios.push(serializeScenario(scenario));
+    }
+
+    sendSuccess(res, {
+      vanilla: vanillaScenarios.map(serializeScenario),
+      mods: Array.from(modGroups.values()),
+    });
+  } catch (error) {
+    logger.error('Failed to get grouped scenarios:', error);
+    errors.serverError(res);
+  }
+});
+
+// Add scenario manually
+router.post('/scenarios',
+  hasPermission('server.config'),
+  body('scenarioId').isString().trim().isLength({ min: 10 }),
+  body('name').isString().trim().isLength({ min: 1, max: 200 }),
+  body('description').optional().isString().trim(),
+  body('modId').optional().isString(),
+  body('isVanilla').optional().isBoolean(),
+  body('imageUrl').optional().isString().trim(),
+  validate,
+  async (req, res) => {
+    try {
+      const { scenarioId, name, description, modId, isVanilla, imageUrl } = req.body;
+
+      // Check if already exists
+      const existing = await prisma.scenario.findUnique({
+        where: { scenarioId },
+      });
+
+      if (existing) {
+        return errors.validation(res, {
+          scenarioId: ['Scenario already exists'],
+        });
+      }
+
+      // If modId provided, verify it exists
+      if (modId) {
+        const mod = await prisma.mod.findUnique({ where: { id: modId } });
+        if (!mod) {
+          return errors.notFound(res, 'Mod');
+        }
+      }
+
+      const scenario = await prisma.scenario.create({
+        data: {
+          scenarioId,
+          name,
+          description: description || null,
+          modId: modId || null,
+          isVanilla: isVanilla || false,
+          imageUrl: imageUrl || null,
+        },
+        include: { mod: true },
+      });
+
+      await prisma.activityLog.create({
+        data: {
+          userId: req.user!.id,
+          action: 'server.scenario.create',
+          category: 'server',
+          details: { scenarioId, name },
+          ip: req.ip,
+        },
+      });
+
+      sendSuccess(res, serializeScenario(scenario), undefined, 201);
+    } catch (error) {
+      logger.error('Failed to create scenario:', error);
+      errors.serverError(res);
+    }
+  }
+);
+
+// Update scenario
+router.patch('/scenarios/:id',
+  hasPermission('server.config'),
+  param('id').isUUID(),
+  body('name').optional().isString().trim().isLength({ min: 1, max: 200 }),
+  body('description').optional().isString().trim(),
+  body('modId').optional({ nullable: true }),
+  body('isVanilla').optional().isBoolean(),
+  body('imageUrl').optional({ nullable: true }),
+  validate,
+  async (req, res) => {
+    try {
+      const scenario = await prisma.scenario.findUnique({
+        where: { id: req.params.id },
+      });
+
+      if (!scenario) {
+        return errors.notFound(res, 'Scenario');
+      }
+
+      // If modId provided, verify it exists
+      if (req.body.modId && req.body.modId !== null) {
+        const mod = await prisma.mod.findUnique({ where: { id: req.body.modId } });
+        if (!mod) {
+          return errors.notFound(res, 'Mod');
+        }
+      }
+
+      const updated = await prisma.scenario.update({
+        where: { id: req.params.id },
+        data: req.body,
+        include: { mod: true },
+      });
+
+      sendSuccess(res, serializeScenario(updated));
+    } catch (error) {
+      logger.error('Failed to update scenario:', error);
+      errors.serverError(res);
+    }
+  }
+);
+
+// Delete scenario
+router.delete('/scenarios/:id',
+  hasPermission('server.config'),
+  param('id').isUUID(),
+  validate,
+  async (req, res) => {
+    try {
+      const scenario = await prisma.scenario.findUnique({
+        where: { id: req.params.id },
+      });
+
+      if (!scenario) {
+        return errors.notFound(res, 'Scenario');
+      }
+
+      await prisma.scenario.delete({
+        where: { id: req.params.id },
+      });
+
+      await prisma.activityLog.create({
+        data: {
+          userId: req.user!.id,
+          action: 'server.scenario.delete',
+          category: 'server',
+          details: { scenarioId: scenario.scenarioId, name: scenario.name },
+          ip: req.ip,
+        },
+      });
+
+      sendSuccess(res, { message: 'Scenario deleted' });
+    } catch (error) {
+      logger.error('Failed to delete scenario:', error);
+      errors.serverError(res);
+    }
+  }
+);
+
+// Scan installed mods for scenarios
+router.post('/scenarios/scan',
+  hasPermission('server.config'),
+  async (req, res) => {
+    try {
+      const connectionId = req.query.connectionId as string | undefined;
+      const managed = connectionId
+        ? gameServerManager.getConnection(connectionId)
+        : gameServerManager.getDefaultConnection();
+
+      if (!managed) {
+        return sendError(res, 'NO_CONNECTION', 'Ingen serveranslutning konfigurerad', 400);
+      }
+
+      // Get all mods from database
+      const mods = await prisma.mod.findMany();
+      const foundScenarios: Array<{
+        scenarioId: string;
+        name: string;
+        modId: string | null;
+        modName: string | null;
+        isNew: boolean;
+      }> = [];
+
+      const serverPath = managed.connection.serverPath;
+
+      // Scan vanilla missions folder
+      const vanillaMissionsPath = `${serverPath}/Missions`;
+      try {
+        const vanillaResult = await managed.executor.exec(`ls -1 "${vanillaMissionsPath}" 2>/dev/null || dir /b "${vanillaMissionsPath}" 2>nul`);
+        if (vanillaResult.success && vanillaResult.output) {
+          const files = vanillaResult.output.split('\n').filter((f: string) => f.endsWith('.conf'));
+          for (const file of files) {
+            const scenarioId = `{ECC61978EDCC2B5A}Missions/${file.trim()}`;
+            const existing = await prisma.scenario.findUnique({ where: { scenarioId } });
+            foundScenarios.push({
+              scenarioId,
+              name: file.replace('.conf', '').trim(),
+              modId: null,
+              modName: 'Vanilla (Base Game)',
+              isNew: !existing,
+            });
+          }
+        }
+      } catch (e) {
+        logger.debug('No vanilla missions found');
+      }
+
+      // Scan mod missions folders
+      for (const mod of mods) {
+        const modMissionsPath = `${serverPath}/addons/${mod.workshopId}/Missions`;
+        try {
+          const result = await managed.executor.exec(`ls -1 "${modMissionsPath}" 2>/dev/null || dir /b "${modMissionsPath}" 2>nul`);
+          if (result.success && result.output) {
+            const files = result.output.split('\n').filter((f: string) => f.endsWith('.conf'));
+            for (const file of files) {
+              const scenarioId = `{${mod.workshopId}}Missions/${file.trim()}`;
+              const existing = await prisma.scenario.findUnique({ where: { scenarioId } });
+              foundScenarios.push({
+                scenarioId,
+                name: file.replace('.conf', '').trim(),
+                modId: mod.id,
+                modName: mod.name,
+                isNew: !existing,
+              });
+            }
+          }
+        } catch (e) {
+          // No missions folder in this mod
+        }
+      }
+
+      await prisma.activityLog.create({
+        data: {
+          userId: req.user!.id,
+          action: 'server.scenario.scan',
+          category: 'server',
+          details: { found: foundScenarios.length, new: foundScenarios.filter(s => s.isNew).length },
+          ip: req.ip,
+        },
+      });
+
+      sendSuccess(res, {
+        scenarios: foundScenarios,
+        total: foundScenarios.length,
+        new: foundScenarios.filter(s => s.isNew).length,
+      });
+    } catch (error) {
+      logger.error('Failed to scan scenarios:', error);
+      errors.serverError(res);
+    }
+  }
+);
+
+// Import scanned scenarios
+router.post('/scenarios/import',
+  hasPermission('server.config'),
+  body('scenarios').isArray(),
+  body('scenarios.*.scenarioId').isString(),
+  body('scenarios.*.name').isString(),
+  body('scenarios.*.modId').optional({ nullable: true }),
+  validate,
+  async (req, res) => {
+    try {
+      const { scenarios } = req.body;
+      const imported: string[] = [];
+      const skipped: string[] = [];
+
+      for (const scenario of scenarios) {
+        const existing = await prisma.scenario.findUnique({
+          where: { scenarioId: scenario.scenarioId },
+        });
+
+        if (existing) {
+          skipped.push(scenario.scenarioId);
+          continue;
+        }
+
+        await prisma.scenario.create({
+          data: {
+            scenarioId: scenario.scenarioId,
+            name: scenario.name,
+            modId: scenario.modId || null,
+            isVanilla: !scenario.modId,
+          },
+        });
+        imported.push(scenario.scenarioId);
+      }
+
+      await prisma.activityLog.create({
+        data: {
+          userId: req.user!.id,
+          action: 'server.scenario.import',
+          category: 'server',
+          details: { imported: imported.length, skipped: skipped.length },
+          ip: req.ip,
+        },
+      });
+
+      sendSuccess(res, {
+        imported: imported.length,
+        skipped: skipped.length,
+        message: `Imported ${imported.length} scenarios, skipped ${skipped.length} duplicates`,
+      });
+    } catch (error) {
+      logger.error('Failed to import scenarios:', error);
+      errors.serverError(res);
+    }
+  }
+);
+
+// Fetch scenarios from Workshop for a specific mod
+router.get('/scenarios/workshop/:modId',
+  hasPermission('server.config'),
+  param('modId').isString().isLength({ min: 16, max: 16 }),
+  validate,
+  async (req, res) => {
+    try {
+      const { modId } = req.params;
+
+      // Check if mod exists in our database
+      const mod = await prisma.mod.findUnique({
+        where: { workshopId: modId },
+      });
+
+      // Fetch scenarios from Workshop
+      const workshopScenarios = await fetchModScenarios(modId);
+
+      if (workshopScenarios.length === 0) {
+        return sendSuccess(res, {
+          scenarios: [],
+          modName: mod?.name || 'Unknown',
+          message: 'Inga scenarios hittades för denna mod på Workshop',
+        });
+      }
+
+      // Check which scenarios are already in database
+      const scenariosWithStatus = await Promise.all(
+        workshopScenarios.map(async (ws) => {
+          const existing = await prisma.scenario.findUnique({
+            where: { scenarioId: ws.scenarioId },
+          });
+          return {
+            ...ws,
+            isNew: !existing,
+            existingId: existing?.id || null,
+          };
+        })
+      );
+
+      sendSuccess(res, {
+        scenarios: scenariosWithStatus,
+        modName: mod?.name || 'Unknown',
+        modId: mod?.id || null,
+        total: scenariosWithStatus.length,
+        new: scenariosWithStatus.filter(s => s.isNew).length,
+      });
+    } catch (error) {
+      logger.error('Failed to fetch workshop scenarios:', error);
+      errors.serverError(res);
+    }
+  }
+);
+
+// Fetch scenarios from Workshop for all installed mods
+router.post('/scenarios/fetch-all',
+  hasPermission('server.config'),
+  async (req, res) => {
+    try {
+      // Get all mods from database
+      const mods = await prisma.mod.findMany();
+
+      const allScenarios: Array<{
+        scenarioId: string;
+        name: string;
+        description?: string;
+        playerCount: number;
+        gameMode: string;
+        modId: string;
+        modName: string;
+        modWorkshopId: string;
+        isNew: boolean;
+      }> = [];
+
+      for (const mod of mods) {
+        try {
+          const workshopScenarios = await fetchModScenarios(mod.workshopId);
+
+          for (const ws of workshopScenarios) {
+            const existing = await prisma.scenario.findUnique({
+              where: { scenarioId: ws.scenarioId },
+            });
+
+            allScenarios.push({
+              ...ws,
+              modId: mod.id,
+              modName: mod.name,
+              modWorkshopId: mod.workshopId,
+              isNew: !existing,
+            });
+          }
+        } catch (e) {
+          logger.warn(`Failed to fetch scenarios for mod ${mod.name}:`, e);
+        }
+      }
+
+      await prisma.activityLog.create({
+        data: {
+          userId: req.user!.id,
+          action: 'server.scenario.fetch-all',
+          category: 'server',
+          details: {
+            modsScanned: mods.length,
+            scenariosFound: allScenarios.length,
+            newScenarios: allScenarios.filter(s => s.isNew).length,
+          },
+          ip: req.ip,
+        },
+      });
+
+      sendSuccess(res, {
+        scenarios: allScenarios,
+        modsScanned: mods.length,
+        total: allScenarios.length,
+        new: allScenarios.filter(s => s.isNew).length,
+      });
+    } catch (error) {
+      logger.error('Failed to fetch all workshop scenarios:', error);
+      errors.serverError(res);
     }
   }
 );

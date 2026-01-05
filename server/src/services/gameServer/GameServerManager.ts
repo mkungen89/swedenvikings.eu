@@ -439,12 +439,21 @@ class GameServerManager extends EventEmitter {
       for (const [id, managed] of this.servers) {
         try {
           const status = await this.getServerStatus(id);
-          this.emit('status-update', { connectionId: id, status });
+          // Add isInstalled and config info to status
+          const isInstalled = await this.isServerInstalled(id);
+          const config = await this.getServerConfig(id);
+          const enrichedStatus = {
+            ...status,
+            isInstalled,
+            serverName: config?.name,
+            maxPlayers: config?.maxPlayers || status.maxPlayers,
+          };
+          this.emit('status-update', { connectionId: id, status: enrichedStatus });
         } catch (error) {
           logger.debug(`Status poll failed for ${id}`);
         }
       }
-    }, 10000); // Poll every 10 seconds
+    }, 15000); // Poll every 15 seconds (socket pushes to clients)
   }
 
   stopStatusPolling(): void {

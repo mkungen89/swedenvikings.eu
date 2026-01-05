@@ -34,7 +34,11 @@
       "Bash(npm uninstall:*)",
       "Bash(ren:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(redis-cli:*)",
+      "Bash(docker stats:*)",
+      "Bash(docker system df:*)",
+      "Bash(npm ls:*)"
     ]
   }
 }

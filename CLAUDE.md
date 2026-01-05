@@ -197,271 +197,227 @@ notification          - Användarnotifikation
 
 ---
 
-## Deployment till Ubuntu VPS (Native - No Docker)
+## Deployment - Två VPS Setup (Rekommenderad)
 
-Vi kör **allt direkt på Ubuntu** utan Docker i produktion:
-- PostgreSQL 16 (native)
-- Redis 7 (native)
-- Node.js 20 LTS (native)
-- PM2 för processhantering
-- Nginx reverse proxy
-- Arma Reforger server direkt på systemet
+Vi kör **två separata Ubuntu-servrar** för optimal prestanda:
 
-### Filer för deployment
+### VPS 1: Web Server (CMS)
+**Specs:** 2 CPU, 4GB RAM, 50GB NVMe
+- PostgreSQL 16 (databas)
+- Redis 7 (sessions/cache)
+- Node.js 20 LTS (CMS)
+- PM2 (processhantering)
+- Nginx (reverse proxy + SSL)
+
+### VPS 2: Game Server (Arma Reforger)
+**Specs:** 4+ CPU, 16GB+ RAM, 50GB+ SSD
+- Arma Reforger Dedicated Server
+- SteamCMD (uppdateringar)
+- SSH Server (remote management)
+
+### SSH-kommunikation
+Web Server kontrollerar Game Server via SSH med nyckelbaserad autentisering:
+- Start/stop/restart Arma-servern
+- Uppdatera via SteamCMD
+- Läsa serverloggar
+- Hantera mods och konfiguration
+
+### Deployment-filer
 
 ```
-.env.example.production         # Production miljövariabler mall
+.env.example.production         # Production miljövariabler
 ecosystem.config.js             # PM2 process manager config
 nginx/swedenvikings.conf        # Nginx reverse proxy
+
 scripts/
-  setup-server.sh               # Installera allt på Ubuntu (kör EN gång)
-  deploy.sh                     # Deploy/uppdatera applikation
+  setup-webserver.sh            # Setup Web Server (VPS 1) - Kör EN gång
+  setup-gameserver.sh           # Setup Game Server (VPS 2) - Kör EN gång
+  deploy.sh                     # Deploy/uppdatera CMS
   backup.sh                     # Databas backup
   restore.sh                    # Databas restore
   logs.sh                       # Visa PM2 logs
-  update-arma.sh                # Uppdatera Arma server
-  swedenvikings.service         # Systemd service (backup till PM2)
+
+docs/
+  TWO-VPS-DEPLOYMENT.md         # Detaljerad deployment-guide
+  QUICK-START-TWO-VPS.md        # Snabb setup-guide
 ```
 
 ### GitHub Secrets för CI/CD
 
 Konfigurera dessa i GitHub repository settings:
-- `VPS_HOST` - IP eller domän till VPS
-- `VPS_USER` - `deploy`
-- `VPS_SSH_KEY` - Privat SSH-nyckel
-- `VPS_PORT` - `22`
+- `WEBSERVER_HOST` - IP eller domän till Web Server
+- `WEBSERVER_USER` - `deploy`
+- `WEBSERVER_SSH_KEY` - Privat SSH-nyckel för Web Server
+- `WEBSERVER_PORT` - `22`
 - `DISCORD_WEBHOOK_ADMIN` - Discord webhook för deploy-notifieringar (optional)
 
 ### Quick Start Deployment
 
-#### Steg 1: Initial Server Setup (EN GÅNG)
+**Se:** [docs/QUICK-START-TWO-VPS.md](docs/QUICK-START-TWO-VPS.md) för steg-för-steg guide
 
+**Sammanfattning:**
+
+#### Steg 1: Setup Game Server (VPS 2)
 ```bash
-# Kör som root på ny Ubuntu 24.04 VPS
-curl -O https://raw.githubusercontent.com/YOUR_USER/swedenvikings.eu/main/scripts/setup-server.sh
-sudo bash setup-server.sh
+wget https://raw.githubusercontent.com/YOUR_USER/swedenvikings.eu/main/scripts/setup-gameserver.sh
+sudo bash setup-gameserver.sh
 ```
 
-Detta installerar:
-- ✓ PostgreSQL 16
-- ✓ Redis 7
-- ✓ Node.js 20 LTS
-- ✓ PM2 processhanterare
-- ✓ Nginx web server
-- ✓ Certbot för SSL
-- ✓ SteamCMD för Arma Reforger
-
-#### Steg 2: Deploy Application
-
+#### Steg 2: Setup Web Server (VPS 1)
 ```bash
-# Logga in som deploy user
-su - deploy
+wget https://raw.githubusercontent.com/YOUR_USER/swedenvikings.eu/main/scripts/setup-webserver.sh
+sudo bash setup-webserver.sh
+```
 
-# Klona repo
+#### Steg 3: Koppla SSH mellan servrarna
+- Kopiera SSH public key från Web Server
+- Lägg till i Game Server's `/home/armaserver/.ssh/authorized_keys`
+- Testa: `ssh gameserver`
+
+#### Steg 4: Deploy CMS (på Web Server)
+```bash
+su - deploy
 cd /opt/swedenvikings
 git clone https://github.com/YOUR_USER/swedenvikings.eu.git .
-
-# Installera dependencies och bygg
-npm install
-npm run build
-
-# Kopiera och konfigurera miljövariabler
 cp .env.example.production .env.production
-nano .env.production  # Fyll i:
-  # - SESSION_SECRET (generera: openssl rand -base64 64)
-  # - STEAM_API_KEY
-  # - Database password
-  # - Din domän
-
-# Kör database migrations
+nano .env.production  # Fyll i alla värden!
+npm install && npm run build
 cd server && npx prisma migrate deploy && cd ..
-
-# Starta med PM2
 pm2 start ecosystem.config.js --env production
 pm2 save
 ```
 
-#### Steg 3: Konfigurera Nginx & SSL
-
+#### Steg 5: Konfigurera Nginx & SSL
 ```bash
-# Kopiera Nginx config
 sudo cp nginx/swedenvikings.conf /etc/nginx/sites-available/swedenvikings
-
-# Redigera domännamn
-sudo nano /etc/nginx/sites-available/swedenvikings
-# Ersätt 'yourdomain.com' med din domän
-
-# Aktivera site
+sudo nano /etc/nginx/sites-available/swedenvikings  # Ändra domän
 sudo ln -s /etc/nginx/sites-available/swedenvikings /etc/nginx/sites-enabled/
-sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t && sudo systemctl reload nginx
-
-# Skaffa SSL-certifikat
 sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com
 ```
 
-#### Steg 4: Verifiera
-
+#### Steg 6: Starta Arma Server (på Game Server)
 ```bash
-# Kolla PM2 status
-pm2 status
-pm2 logs swedenvikings
-
-# Kolla Nginx
-sudo systemctl status nginx
-
-# Kolla PostgreSQL
-sudo systemctl status postgresql
-
-# Kolla Redis
-sudo systemctl status redis-server
-
-# Test hemsida
-curl https://yourdomain.com
+sudo nano /opt/arma-reforger-server/server.json  # Ändra lösenord
+sudo systemctl start arma-reforger
+sudo systemctl status arma-reforger
 ```
 
 ### Hantera Applikationen
 
+**Web Server (CMS):**
 ```bash
-# Starta
-pm2 start ecosystem.config.js --env production
-
-# Stoppa
-pm2 stop swedenvikings
-
-# Starta om
-pm2 restart swedenvikings
-
-# Reload (zero-downtime)
-pm2 reload swedenvikings
-
-# Logs (live)
-pm2 logs swedenvikings
-
-# Logs (senaste 100 rader)
-pm2 logs swedenvikings --lines 100
-
-# Monitoring
-pm2 monit
-
-# Status
-pm2 status
-
-# Spara PM2 config (körs vid boot)
-pm2 save
+pm2 status                    # Status
+pm2 logs swedenvikings        # Logs (live)
+pm2 restart swedenvikings     # Restart
+pm2 monit                     # Monitoring
 ```
 
-### Uppdatera Applikationen
+**Game Server (Arma):**
+```bash
+sudo systemctl status arma-reforger        # Status
+sudo systemctl restart arma-reforger       # Restart
+sudo journalctl -u arma-reforger -f        # Logs
+sudo /opt/update-arma.sh                   # Update
+```
+
+### Uppdatera CMS
 
 ```bash
-# Automatisk deploy script
 cd /opt/swedenvikings
 bash scripts/deploy.sh
-
-# Eller manuellt:
-git pull origin main
-npm install
-npm run build
-cd server && npx prisma migrate deploy && cd ..
-pm2 reload ecosystem.config.js --env production
-pm2 save
 ```
 
-### Linux server paths
+### Server Paths
 
+**Web Server:**
 ```
 /opt/swedenvikings/           # CMS projekt
-/opt/arma-reforger-server/    # Arma server
-/opt/steamcmd/                # SteamCMD
-/var/log/swedenvikings/       # Applikationsloggar
+/var/log/swedenvikings/       # Loggar
+/home/deploy/backups/         # Databas backups
+/home/deploy/.ssh/            # SSH-nycklar
 ```
 
-### Systemd Service (Alternativ till PM2)
-
-Om du föredrar systemd istället för PM2:
-
-```bash
-# Kopiera service file
-sudo cp scripts/swedenvikings.service /etc/systemd/system/
-
-# Reload systemd
-sudo systemctl daemon-reload
-
-# Aktivera service
-sudo systemctl enable swedenvikings
-
-# Starta service
-sudo systemctl start swedenvikings
-
-# Status
-sudo systemctl status swedenvikings
-
-# Logs
-sudo journalctl -u swedenvikings -f
+**Game Server:**
+```
+/opt/arma-reforger-server/    # Arma server
+/opt/steamcmd/                # SteamCMD
+/home/armaserver/.ssh/        # SSH authorized keys
 ```
 
 ### Brandväggsregler (UFW)
 
+**Web Server:**
 ```bash
 ufw allow 22/tcp      # SSH
 ufw allow 80/tcp      # HTTP
 ufw allow 443/tcp     # HTTPS
+```
+
+**Game Server:**
+```bash
+ufw allow from WEB_SERVER_IP to any port 22 proto tcp  # SSH från Web Server
 ufw allow 2001/udp    # Arma Reforger game
 ufw allow 17777/udp   # Arma Reforger query
 ```
 
-### VPS Rekommenderade specs
+### Rekommenderade VPS Specs
 
-- **CPU:** 4+ cores (Arma är CPU-intensiv)
-- **RAM:** 16GB+ (8GB Arma, 4GB CMS/DB, 2GB system, 2GB buffer)
-- **Disk:** 50GB+ SSD (20GB OS, 15GB Arma, 10GB CMS, 5GB logs/backups)
+**Web Server (VPS 1):**
+- **CPU:** 2 cores
+- **RAM:** 4GB
+- **Disk:** 50GB NVMe
+- **OS:** Ubuntu 24.04 LTS
+- **Kostnad:** ~$12-20/mån
+
+**Game Server (VPS 2):**
+- **CPU:** 4-6 cores (Arma är CPU-intensiv)
+- **RAM:** 16GB+ (8-12GB för Arma + OS)
+- **Disk:** 50GB+ SSD
 - **OS:** Ubuntu 24.04 LTS
 - **Network:** 100 Mbps+ (för multiplayer)
+- **Kostnad:** ~$40-80/mån
+
+**Total kostnad:** ~$52-100/mån
 
 ### Monitoring & Troubleshooting
 
+**Web Server:**
 ```bash
-# PM2 Monitoring
-pm2 monit                    # Live monitoring dashboard
-pm2 logs --lines 200         # Senaste loggarna
-pm2 restart all              # Restart alla processer
-
-# System Resources
-htop                         # CPU/RAM usage
+pm2 monit                    # PM2 dashboard
+pm2 logs --lines 200         # CMS logs
+htop                         # System resources
 df -h                        # Disk usage
-free -h                      # Memory usage
-
-# Nginx
-sudo nginx -t                # Test config
-sudo systemctl status nginx
-sudo tail -f /var/log/nginx/swedenvikings_error.log
-
-# PostgreSQL
-sudo systemctl status postgresql
-sudo -u postgres psql -d swedenvikings -c "SELECT version();"
-
-# Redis
-redis-cli ping
-redis-cli info stats
-
-# Arma Reforger Server
-ps aux | grep Arma           # Kolla om processen körs
+sudo tail -f /var/log/nginx/swedenvikings_error.log  # Nginx errors
+redis-cli ping               # Redis status
 ```
 
-### Backup & Restore
+**Game Server:**
+```bash
+sudo systemctl status arma-reforger     # Server status
+sudo journalctl -u arma-reforger -f     # Server logs
+htop                                     # System resources
+ps aux | grep Arma                       # Server process
+```
+
+**Test SSH-kommunikation:**
+```bash
+# På Web Server
+ssh gameserver "systemctl status arma-reforger"
+ssh gameserver "ls -la /opt/arma-reforger-server"
+```
+
+### Backup & Restore (Web Server)
 
 ```bash
-# Backup databas
-bash scripts/backup.sh
+# Automatisk backup (redan setup via setup-webserver.sh)
+/home/deploy/backup-db.sh
 
-# Restore databas
+# Restore
 bash scripts/restore.sh backup_filename.sql
 
-# Manuell backup
-pg_dump -U swedenvikings swedenvikings > backup_$(date +%Y%m%d).sql
-
-# Automatisk backup (cron)
-# Lägg till i crontab: crontab -e
-0 2 * * * cd /opt/swedenvikings && bash scripts/backup.sh
+# Setup automatisk backup (cron)
+crontab -e
+# Lägg till: 0 2 * * * /home/deploy/backup-db.sh >> /home/deploy/backup.log 2>&1
 ```
 
